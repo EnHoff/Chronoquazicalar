@@ -174,9 +174,12 @@ class BeliefWorldSampler:
                 bench_mvs = self._sample_moves_for_species(sp_name, rev_mvs, rng=r)
                 p2_moves_list.append(bench_mvs)
 
-        # Unrevealed opponent slots: Sample plausible Randbats species (alive at 100% HP)
+        # Unrevealed opponent slots: formats with team preview (e.g. gen9ou) show all six species,
+        # otherwise sample plausible Randbats species (alive at 100% HP)
         remaining_needed = 6 - len(p2_bench)
-        available_species = [s for s in self.all_species if s not in used_p2_species]
+        previewed = [to_id(p.species) for p in (getattr(battle, "teampreview_opponent_team", None) or [])]
+        previewed = [s for s in previewed if s not in used_p2_species]
+        available_species = previewed or [s for s in self.all_species if s not in used_p2_species]
 
         if remaining_needed > 0 and available_species:
             sampled_species = r.sample(available_species, min(remaining_needed, len(available_species)))
