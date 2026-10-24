@@ -26,9 +26,10 @@ ITEM = _ns(
 ABILITY = _ns(
     T.ability_ids,
     "protosynthesis quarkdrive drizzle drought sandstream snowwarning electricsurge grassysurge "
-    "psychicsurge mistysurge levitate swiftswim chlorophyll sandrush slushrush guts",
+    "psychicsurge mistysurge levitate swiftswim chlorophyll sandrush slushrush guts regenerator naturalcure "
+    "pressure",
 )
-MOVE = _ns(T.move_ids, "knockoff facade hex acrobatics weatherball hydrosteam")
+MOVE = _ns(T.move_ids, "knockoff facade hex acrobatics weatherball hydrosteam struggle")
 
 # Modifier constants in Showdown's 4096 fixed point
 M_1_5 = 6144

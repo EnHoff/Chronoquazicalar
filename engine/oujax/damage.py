@@ -121,6 +121,7 @@ def move_type_and_bp(move_id, att: Combatant, dfn: Combatant, weather):
     bp = jnp.where(is_wb & (weather != 0), bp * 2, bp)
     bp = jnp.where((move_id == MOVE.hex) & (dfn.status != 0), bp * 2, bp)
     bp = jnp.where((move_id == MOVE.acrobatics) & (att.item == 0), bp * 2, bp)
+    mtype = jnp.where(move_id == MOVE.struggle, TYPE_NONE, mtype)  # Struggle is typeless ("???")
     return mtype, bp
 
 

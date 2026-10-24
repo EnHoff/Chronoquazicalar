@@ -68,6 +68,7 @@ const moves = {};
 for (const m of dex.moves.all().filter(available)) {
 	const out = {};
 	for (const f of MOVE_FIELDS) if (m[f] !== undefined && m[f] !== null && m[f] !== false) out[f] = plain(m[f]);
+	if (m.ignoreImmunity === false) out.ignoreImmunity = false; // e.g. Thunder Wave: status move that respects immunity
 	out.handlers = handlers(m);
 	out.conditionHandlers = conditionHandlers(m);
 	moves[m.id] = out;

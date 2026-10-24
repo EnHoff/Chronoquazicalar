@@ -40,7 +40,7 @@
  *
  * STATE: {turn, ended, winner, field: {weather, weatherTurns, terrain, terrainTurns, pseudoWeather},
  *         sides: [{id, active: [slot], sideConditions, pokemon: [MON]}], requests: {p1, p2}, log: [new lines]}
- *   MON: {species, slot, hp, maxhp, status, statusTurns, toxicStage, boosts, item, ability, teraType,
+ *   MON: {name, species, slot, hp, maxhp, status, statusTurns, toxicStage, boosts, item, ability, teraType,
  *         terastallized, volatiles, moves: [{id, pp, maxpp, disabled}], fainted, active}
  */
 'use strict';
@@ -111,6 +111,7 @@ function installForced(battle, opts) {
 
 function monState(p, slot) {
 	return {
+		name: p.name,
 		species: p.species.id,
 		slot,
 		hp: p.hp,
