@@ -38,6 +38,7 @@ class Battle:
     ability: jnp.ndarray  # (2, 6) int16
     tera_type: jnp.ndarray  # (2, 6) int8
     terastallized: jnp.ndarray  # (2, 6) bool
+    stellar_used: jnp.ndarray  # (2, 6) int32 bitmask of types that used their Stellar Tera boost
     # --- active Pokemon and its volatiles (2 sides) --------------------------------------------------
     active: jnp.ndarray  # (2,) int8 team slot, -1 before team preview
     boosts: jnp.ndarray  # (2, 7) int8 [atk, def, spa, spd, spe, accuracy, evasion]
@@ -97,6 +98,7 @@ def init_battle(p1: TeamArrays, p2: TeamArrays) -> Battle:
         ability=both("ability", np.int16),
         tera_type=both("tera_type", np.int8),
         terastallized=jnp.zeros((2, 6), bool),
+        stellar_used=jnp.zeros((2, 6), jnp.int32),
         active=jnp.full((2,), -1, jnp.int8),
         boosts=jnp.zeros((2, 7), jnp.int8),
         paradox_stat=zeros2(jnp.int8),

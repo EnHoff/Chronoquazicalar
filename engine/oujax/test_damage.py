@@ -81,6 +81,8 @@ class CaseBuilder:
         boosts = [r.choice([0, 0, 0, -1, 1, 2, -2]) for _ in BOOST_KEYS]
         status = r.choice(["", "", "brn", "par"]) if as_attacker else r.choice(["", "", "par"])
         tera = r.random() < 0.3
+        if tera and as_attacker and r.random() < 0.15:
+            s = dict(s, tera="stellar")  # Stellar Tera (first use of each type is boosted)
         sid = T.species_ids[s["species"]]
         base = T.species[sid, SC["base_hp"] : SC["base_spe"] + 1]
         stats = calc_stats(
@@ -143,6 +145,7 @@ def calc_case(case):
         "move": {
             "name": T.dex["moves"][[k for k, v in T.move_ids.items() if v == case["move"]][0]]["name"],
             "isCrit": case["crit"],
+            "isStellarFirstUse": case["att"]["tera"] and case["att"]["set"]["tera"] == "stellar",
         },
         "field": {
             "weather": case["weather"] or None,

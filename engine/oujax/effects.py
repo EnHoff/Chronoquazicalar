@@ -38,6 +38,7 @@ M_0_5 = 2048
 M_2 = 8192
 M_LIFE_ORB = 5324
 M_EXPERT_BELT = 4915
+M_STELLAR = 4915
 
 
 def _item_removable() -> np.ndarray:

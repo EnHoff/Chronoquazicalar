@@ -24,6 +24,7 @@ from engine.oujax.effects import (
     M_2,
     M_EXPERT_BELT,
     M_LIFE_ORB,
+    M_STELLAR,
     MOVE,
     T,
 )
@@ -54,6 +55,7 @@ class Combatant(NamedTuple):
     item: jnp.ndarray
     ability: jnp.ndarray
     paradox_stat: jnp.ndarray  # 0 = inactive, else 1..5 = boosted stat (atk..spe)
+    stellar_used: jnp.ndarray = 0  # bitmask of move types that already got their Stellar Tera boost
 
 
 class FieldInfo(NamedTuple):
@@ -158,10 +160,11 @@ def damage(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit, roll
     )
     bp_mod = chain_if(bp_mod, misty_dragon | grassy_quake, M_0_5)
     bp = jnp.maximum(modify(bp, bp_mod), 1)
+    stellar = att.terastallized & (att.tera_type == TYPE_STELLAR)
+    stellar_fresh = stellar & ((jnp.asarray(att.stellar_used, jnp.int32) & (1 << mtype)) == 0)
     tera_floor = (
         att.terastallized
-        & (att.tera_type != TYPE_STELLAR)
-        & has_type(att_types, mtype)
+        & jnp.where(stellar, stellar_fresh, has_type(att_types, mtype))
         & (bp < 60)
         & (row[MC["priority"]] <= 0)
         & (row[MC["multihit_max"]] == 0)
@@ -220,9 +223,11 @@ def damage(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit, roll
     base = base * (100 - roll) // 100
 
     orig_types = att.base_types
-    stab_any = has_type(att_types, mtype) | has_type(orig_types, mtype)
+    stab_any = (mtype != TYPE_NONE) & (has_type(att_types, mtype) | has_type(orig_types, mtype))
     tera_match = att.terastallized & (att.tera_type == mtype) & has_type(orig_types, mtype)
     stab = jnp.where(tera_match, M_2, jnp.where(stab_any, M_1_5, 4096))
+    # Stellar Tera: the first move of each type gets 2x (original STAB types) or 4915/4096
+    stab = jnp.where(stellar_fresh, jnp.where(stab_any, M_2, M_STELLAR), stab)
     base = modify(base, stab)
 
     base = jnp.where(type_mod > 0, base << jnp.maximum(type_mod, 0), base)

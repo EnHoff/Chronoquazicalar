@@ -62,6 +62,7 @@ from engine.oujax.tables import (
     STATUS_ID,
     TARGET_ID,
     TYPE_NONE,
+    TYPE_STELLAR,
     VOLATILES,
 )
 
@@ -77,6 +78,9 @@ VOL = {v: i for i, v in enumerate(VOLATILES)}
 SIDE = {v: i for i, v in enumerate(SIDE_CONDITIONS)}
 PSEUDO = {v: i for i, v in enumerate(PSEUDO_WEATHERS)}
 STRUGGLE = MID["struggle"]
+SAND_IMMUNE_ABILITIES = jnp.array(
+    [T.ability_ids[a] for a in ("sandrush", "sandforce", "sandveil", "overcoat", "magicguard")]
+)
 CRIT_DEN = jnp.array([0, 24, 8, 2, 1], jnp.int32)
 MULTIHIT_2_5 = jnp.array([2, 2, 2, 3, 3, 3, 4, 5], jnp.int32)
 ACC_NUM = jnp.array([3, 4, 5, 6, 7, 8, 9], jnp.int32)  # accuracy stages x3: [1, 4/3, 5/3, 2, 7/3, 8/3, 3]
@@ -207,6 +211,7 @@ def combatant(st: Battle, s) -> Combatant:
         item=_i(st.item[s, slot]),
         ability=_i(st.ability[s, slot]),
         paradox_stat=_i(st.paradox_stat[s]),
+        stellar_used=st.stellar_used[s, slot],
     )
 
 
@@ -612,6 +617,13 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     landed &= ~immune
 
     st, dealt, hit_sub = damage_phase(st, s, mid, landed & ~is_status, keys[4:10], cfg)
+    # A Stellar Tera user spends the boost for this move's type once the move has dealt its damage
+    stellar = landed & ~is_status & st.terastallized[s, slot] & (st.tera_type[s, slot] == TYPE_STELLAR)
+    st = st.replace(
+        stellar_used=st.stellar_used.at[s, slot].set(
+            jnp.where(stellar, st.stellar_used[s, slot] | (1 << mtype), st.stellar_used[s, slot])
+        )
+    )
     st = after_damage(st, s, mid, landed & ~is_status, dealt, hit_sub, keys[10], cfg)
     st, pivot_ok = status_phase(st, s, mid, landed & is_status, keys[11], cfg)
     st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & is_protect)))
@@ -867,6 +879,7 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         slot = act(st, s)
         t = types_now(st, s, slot)
         immune = has_type(t, TY["rock"]) | has_type(t, TY["ground"]) | has_type(t, TY["steel"])
+        immune |= jnp.any(st.ability[s, slot] == SAND_IMMUNE_ABILITIES)
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.weather == SAND) & ~immune)
         return eat_sitrus(st, s)
 
@@ -1051,7 +1064,9 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     for i in range(2):
         s = order[i]
         o = 1 - s
-        go = uses_move[s] & (pivot_side < 0)
+        # Showdown ends the battle the moment a side has nothing left, so nobody acts after that
+        decided_now = jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)
+        go = uses_move[s] & (pivot_side < 0) & ~decided_now
         last = ~(uses_move[o] & (i == 0))
         st, pivot = run_move(st, s, move_slot[s], struggle[s], go, last, keys[2 + i], cfg)
         pivot = go & pivot

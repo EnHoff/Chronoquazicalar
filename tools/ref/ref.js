@@ -13,7 +13,7 @@
  *   {"cmd": "calc", "attacker": P, "defender": P, "move": M, "field": F}
  *       P: {species, level?, item?, ability?, nature?, evs?, ivs?, boosts?, status?, teraType?, curHP?, boostedStat?}
  *          (teraType set = terastallized, as in @smogon/calc)
- *       M: {name, isCrit?, hits?}   F: @smogon/calc Field options (weather, terrain, attackerSide, defenderSide)
+ *       M: {name, isCrit?, hits?, isStellarFirstUse?}   F: @smogon/calc Field options (weather, terrain, attackerSide, defenderSide)
  *       -> {"damage": [16 rolls] | number, "desc": string}
  *   {"cmd": "calcs", "cases": [{attacker, defender, move, field}, ...]} -> {"results": [{damage, desc} | {error}]}
  *   {"cmd": "start", "format": "gen9ou", "p1": packed, "p2": packed, "seed"?: [4 ints], "forced"?: FORCED}
@@ -201,7 +201,7 @@ function cmdCalc(req) {
 		CALC_GEN,
 		calcPokemon(req.attacker),
 		calcPokemon(req.defender),
-		new calc.Move(CALC_GEN, req.move.name, {isCrit: !!req.move.isCrit, hits: req.move.hits}),
+		new calc.Move(CALC_GEN, req.move.name, {isCrit: !!req.move.isCrit, hits: req.move.hits, isStellarFirstUse: !!req.move.isStellarFirstUse}),
 		new calc.Field(req.field || {})
 	);
 	let desc = '';
