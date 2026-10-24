@@ -7,7 +7,7 @@ Tested on Ubuntu 24.04 under WSL2 with an RTX 4060 Laptop GPU (driver 592.82, CU
 ```bash
 conda create -n chrono python=3.12
 conda activate chrono
-pip install "jax[cuda12]" flax optax numpy scipy poke-env requests pytest ruff
+pip install "jax[cuda12]" flax optax numpy scipy poke-env requests pytest ruff huggingface_hub
 # Don't let JAX grab 75% of GPU memory up front (fails on 8 GB laptop GPUs under WSL)
 conda env config vars set XLA_PYTHON_CLIENT_PREALLOCATE=false
 conda deactivate && conda activate chrono
@@ -55,4 +55,19 @@ Validate an OU team: `./pokemon-showdown pack-team < team.txt | ./pokemon-showdo
 ```bash
 python bot_client.py --test-local --format gen9ou --team teams/sample_ou.txt --battles 5
 python -m evaluation.run_local_ou --games 100 --opponent random
+```
+
+## OU team and set data
+
+`python -m data.ou.build` downloads the sources into `data/ou/cache/` and writes `team_pool.jsonl`,
+`set_archetypes.json`, `usage_marginals.json`, `meta_coverage.json`, `eval_teams/` and `report.md` to
+`data/ou/generated/` (both directories are gitignored, about 60 MB and 160 MB). It needs `huggingface_hub`
+(`pip install huggingface_hub`) and the local Showdown clone, whose `TeamValidator` checks every team.
+`--offline` rebuilds from the cache; `--refresh` re-downloads everything. Each build's `manifest.json` and
+`report.md` are copied to `data/ou/` so the numbers are tracked in git.
+
+Play against rotating eval teams with:
+
+```bash
+python -m evaluation.run_local_ou --games 20 --opponent heuristic --rotate-teams
 ```
