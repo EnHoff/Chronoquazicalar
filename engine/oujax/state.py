@@ -69,6 +69,7 @@ class Battle:
     queued_action: jnp.ndarray  # (2,) int8: move action still to run after a pivot, -1 = none
     turn: jnp.ndarray  # () int16
     winner: jnp.ndarray  # () int8: -1 ongoing, 0 / 1 side won, 2 tie
+    last_faint: jnp.ndarray  # () int8: side of the most recent Pokemon to faint (-1 none); wins a double wipe
 
 
 def init_battle(p1: TeamArrays, p2: TeamArrays) -> Battle:
@@ -125,4 +126,5 @@ def init_battle(p1: TeamArrays, p2: TeamArrays) -> Battle:
         queued_action=jnp.full((2,), NO_ACTION, jnp.int8),
         turn=jnp.int16(0),
         winner=jnp.int8(WINNER_NONE),
+        last_faint=jnp.int8(-1),
     )

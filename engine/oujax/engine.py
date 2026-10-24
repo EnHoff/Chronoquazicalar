@@ -226,7 +226,12 @@ def field_info(st: Battle, target_side) -> FieldInfo:
 
 
 def set_hp(st: Battle, s, slot, hp):
-    return st.replace(hp=st.hp.at[s, slot].set(jnp.clip(hp, 0, st.stats[s, slot, 0]).astype(st.hp.dtype)))
+    new = jnp.clip(hp, 0, st.stats[s, slot, 0]).astype(st.hp.dtype)
+    faints = (new == 0) & (st.hp[s, slot] > 0)
+    return st.replace(
+        hp=st.hp.at[s, slot].set(new),
+        last_faint=jnp.where(faints, s, st.last_faint).astype(jnp.int8),
+    )
 
 
 def lose_hp(st: Battle, s, slot, amount, cond=True):
@@ -1091,8 +1096,12 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
 def next_request(st: Battle, suspended, pivot_side, resume_after, queued, turn_over, live):
     alive = alive_mask(st)
     left = jnp.sum(alive, axis=1)
+    # Battle.checkWin: when both sides are out at once, the side whose Pokemon fainted last wins
+    double_wipe = jnp.where(st.last_faint >= 0, st.last_faint, WINNER_TIE)
     winner = jnp.where(
-        (left[0] == 0) & (left[1] == 0), WINNER_TIE, jnp.where(left[1] == 0, 0, jnp.where(left[0] == 0, 1, WINNER_NONE))
+        (left[0] == 0) & (left[1] == 0),
+        double_wipe,
+        jnp.where(left[1] == 0, 0, jnp.where(left[0] == 0, 1, WINNER_NONE)),
     )
     winner = jnp.where(live, winner, st.winner)
     over = winner != WINNER_NONE
