@@ -1,0 +1,58 @@
+# Local setup (WSL2 / Linux, NVIDIA GPU)
+
+Tested on Ubuntu 24.04 under WSL2 with an RTX 4060 Laptop GPU (driver 592.82, CUDA 13.1).
+
+## Python environment
+
+```bash
+conda create -n chrono python=3.12
+conda activate chrono
+pip install "jax[cuda12]" flax optax numpy scipy poke-env requests pytest ruff
+# Don't let JAX grab 75% of GPU memory up front (fails on 8 GB laptop GPUs under WSL)
+conda env config vars set XLA_PYTHON_CLIENT_PREALLOCATE=false
+conda deactivate && conda activate chrono
+python -c "import jax; print(jax.devices())"   # expect [CudaDevice(id=0)]
+```
+
+Run the unit tests with `python -m pytest engine models search`. The throughput benchmark threshold can be
+raised for faster hardware with `CHRONO_MIN_TPS=50000`.
+
+## Node.js
+
+Install Node 22 natively in WSL; the Windows `npm` under `/mnt/c` will not work.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+. ~/.nvm/nvm.sh
+nvm install 22 && nvm alias default 22
+which node   # should be ~/.nvm/versions/node/v22.x/bin/node
+```
+
+## Local Pokémon Showdown server
+
+Pinned commit: `c0845f33d381402dfcb18ce324c20a94f18af075` (smogon/pokemon-showdown master, 2026-10-23).
+
+```bash
+cd ..   # sibling of this repo
+git clone https://github.com/smogon/pokemon-showdown.git
+cd pokemon-showdown
+git checkout c0845f33d381402dfcb18ce324c20a94f18af075
+npm install
+cp config/config-example.js config/config.js
+```
+
+Start it (background, port 8000, log in `../showdown.log`):
+
+```bash
+scripts/start_showdown.sh
+```
+
+Validate an OU team: `./pokemon-showdown pack-team < team.txt | ./pokemon-showdown validate-team gen9ou`
+(run from the Showdown directory; exit code 0 means valid).
+
+## Playing gen9ou locally
+
+```bash
+python bot_client.py --test-local --format gen9ou --team teams/sample_ou.txt --battles 5
+python -m evaluation.run_local_ou --games 100 --opponent random
+```
