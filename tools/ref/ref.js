@@ -11,10 +11,11 @@
  *   {"cmd": "stats", "teams": [packed team, ...]}
  *       -> {"stats": [[{species, maxhp, stats: {atk, def, spa, spd, spe}}, ...], ...]}
  *   {"cmd": "calc", "attacker": P, "defender": P, "move": M, "field": F}
- *       P: {species, level?, item?, ability?, nature?, evs?, ivs?, boosts?, status?, teraType?, curHP?}
+ *       P: {species, level?, item?, ability?, nature?, evs?, ivs?, boosts?, status?, teraType?, curHP?, boostedStat?}
  *          (teraType set = terastallized, as in @smogon/calc)
  *       M: {name, isCrit?, hits?}   F: @smogon/calc Field options (weather, terrain, attackerSide, defenderSide)
  *       -> {"damage": [16 rolls] | number, "desc": string}
+ *   {"cmd": "calcs", "cases": [{attacker, defender, move, field}, ...]} -> {"results": [{damage, desc} | {error}]}
  *   {"cmd": "start", "format": "gen9ou", "p1": packed, "p2": packed, "seed"?: [4 ints], "forced"?: FORCED}
  *       -> {"battle": n, "state": STATE}
  *   {"cmd": "choose", "battle": n, "p1"?: choice, "p2"?: choice}
@@ -188,7 +189,7 @@ function cmdStats(req) {
 
 function calcPokemon(p) {
 	const opts = {};
-	for (const k of ['level', 'item', 'ability', 'nature', 'evs', 'ivs', 'boosts', 'status', 'teraType', 'curHP']) {
+	for (const k of ['level', 'item', 'ability', 'nature', 'evs', 'ivs', 'boosts', 'status', 'teraType', 'curHP', 'boostedStat']) {
 		if (p[k] !== undefined && p[k] !== null && p[k] !== '') opts[k] = p[k];
 	}
 	return new calc.Pokemon(CALC_GEN, p.species, opts);
@@ -244,6 +245,15 @@ const COMMANDS = {
 	pack: req => ({packed: req.teams.map(toPacked)}),
 	stats: cmdStats,
 	calc: cmdCalc,
+	calcs: req => ({
+		results: req.cases.map(c => {
+			try {
+				return cmdCalc(c);
+			} catch (e) {
+				return {error: String(e && e.message || e)};
+			}
+		}),
+	}),
 	start: cmdStart,
 	choose: cmdChoose,
 	end: req => (battles.delete(req.battle), {}),

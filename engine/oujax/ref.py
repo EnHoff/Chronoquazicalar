@@ -77,6 +77,10 @@ class RefHarness:
     def calc(self, attacker: Dict, defender: Dict, move: Dict, field: Optional[Dict] = None) -> Dict:
         return self.request("calc", attacker=attacker, defender=defender, move=move, field=field or {})
 
+    def calcs(self, cases: List[Dict]) -> List[Dict]:
+        """Many damage calcs in one round trip; each result is {damage, desc} or {error}."""
+        return self.request("calcs", cases=cases)["results"]
+
     def start(
         self, p1: str, p2: str, forced: Any = None, seed: Optional[List[int]] = None, fmt: str = "gen9ou"
     ) -> Tuple[int, Dict]:

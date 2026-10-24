@@ -19,6 +19,7 @@ import numpy as np
 DEX_PATH = Path(__file__).resolve().parent / "data" / "dex_gen9.json"
 
 STATS = ("hp", "atk", "def", "spa", "spd", "spe")
+STAT_ID = {s: i for i, s in enumerate(STATS) if s != "hp"}  # 1..5; 0 = no override
 BOOSTS = ("atk", "def", "spa", "spd", "spe", "accuracy", "evasion")
 
 # Types: the 18 real types in Showdown's order, then Stellar (Tera only) and a "no type" filler
@@ -73,6 +74,8 @@ MOVE_COLUMNS = (
     "multihit_min", "multihit_max", "status", "volatile", "side_condition", "weather", "terrain",
     "pseudo_weather", "self_switch", "force_switch", "fixed_damage", "ohko",
     "sec_chance", "sec_status", "sec_volatile", "self_volatile",
+    "off_stat", "def_stat", "off_target",  # Body Press (def), Psyshock (def), Foul Play (target's atk)
+    "ignore_defensive",  # Sacred Sword / Darkest Lariat ignore the target's defensive boosts
     *(f"boost_{b}" for b in BOOSTS),  # status-move boosts on the target (self for self-target moves)
     *(f"self_boost_{b}" for b in BOOSTS),  # move.self.boosts / selfBoost.boosts (e.g. Close Combat)
     *(f"sec_boost_{b}" for b in BOOSTS),  # secondary boosts on the target (e.g. Moonblast -1 SpA)
@@ -83,6 +86,7 @@ MC = {c: i for i, c in enumerate(MOVE_COLUMNS)}
 
 SPECIES_COLUMNS = (
     *(f"base_{s}" for s in STATS), "type1", "type2", "weight_hg", "ability0", "ability1", "ability_h", "num",
+    "paradox",
 )  # fmt: skip
 SC = {c: i for i, c in enumerate(SPECIES_COLUMNS)}
 
@@ -156,6 +160,10 @@ def _move_row(m: dict, type_ids: Dict[str, int], vol_ids: Dict[str, int]) -> Lis
         "sec_status": STATUS_ID.get(sec.get("status") or "", 0),
         "sec_volatile": vol_ids.get(to_id(sec.get("volatileStatus")), 0),
         "self_volatile": vol_ids.get(to_id(self_eff.get("volatileStatus")), 0),
+        "off_stat": STAT_ID.get(m.get("overrideOffensiveStat") or "", 0),
+        "def_stat": STAT_ID.get(m.get("overrideDefensiveStat") or "", 0),
+        "off_target": int(m.get("overrideOffensivePokemon") == "target"),
+        "ignore_defensive": int(bool(m.get("ignoreDefensive"))),
         "has_handlers": int(bool(m.get("handlers") or m.get("conditionHandlers"))),
     }  # fmt: skip
     for b, v in zip(BOOSTS, _boosts(m.get("boosts"))):
@@ -195,6 +203,7 @@ def load_tables(path: Path = DEX_PATH) -> Tables:
         for key, col in (("0", "ability0"), ("1", "ability1"), ("H", "ability_h")):
             row[SC[col]] = ability_ids.get(to_id(s["abilities"].get(key)), 0)
         row[SC["num"]] = s["num"]
+        row[SC["paradox"]] = int("Paradox" in s.get("tags", []))
 
     moves = np.zeros((len(move_ids), len(MOVE_COLUMNS)), np.int32)
     for mid, m in dex["moves"].items():

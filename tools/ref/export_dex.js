@@ -4,7 +4,7 @@
  * Exports Gen 9 game data from a local Pokémon Showdown checkout as plain JSON for OU-JAX:
  * species, moves, items, abilities, natures and the type chart. Only entries that exist in
  * Gen 9 (isNonstandard null) are kept. For moves, items and abilities the names of their
- * event handlers (onBasePower, onModifyAtk, ...) are listed so later code can tell which
+ * event handlers and callbacks (onBasePower, basePowerCallback, ...) are listed so later code can tell which
  * effects are pure data and which need hand-written logic.
  *
  * Usage: node tools/ref/export_dex.js <showdown-dir> > engine/oujax/data/dex_gen9.json
@@ -22,7 +22,7 @@ const available = e => e.exists && !e.isNonstandard;
 
 function handlers(entry) {
 	return Object.keys(entry)
-		.filter(k => /^on[A-Z]/.test(k) && typeof entry[k] === 'function')
+		.filter(k => (/^on[A-Z]/.test(k) || /Callback$/.test(k)) && typeof entry[k] === 'function')
 		.sort();
 }
 
@@ -48,6 +48,7 @@ for (const s of dex.species.all().filter(available)) {
 		weightkg: s.weightkg,
 		tier: s.tier,
 		requiredItem: s.requiredItem || null,
+		tags: s.tags || [],
 		battleOnly: s.battleOnly || null,
 		otherFormes: s.otherFormes || [],
 	};
