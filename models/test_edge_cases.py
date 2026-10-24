@@ -57,8 +57,10 @@ class TestModelEdgeCases(unittest.TestCase):
     def test_batch_invariance(self):
         """Verify that evaluating an input individually or as part of a batch produces identical logits."""
         b4_inp = {k: jnp.repeat(v, 4, axis=0) for k, v in self.batched_inp.items()}
-        logits_single, _, val_single = self.model.apply(self.params, self.batched_inp)
-        logits_batch, _, val_batch = self.model.apply(self.params, b4_inp)
+        # GPUs default to reduced-precision (TF32) matmuls, whose rounding varies with batch shape
+        with jax.default_matmul_precision("highest"):
+            logits_single, _, val_single = self.model.apply(self.params, self.batched_inp)
+            logits_batch, _, val_batch = self.model.apply(self.params, b4_inp)
 
         np_single = jnp.squeeze(logits_single, axis=0)
         for i in range(4):
