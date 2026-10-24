@@ -67,6 +67,10 @@ class RefHarness:
             raise RefError(resp.get("error", "unknown error"))
         return resp
 
+    def pack(self, teams: List[str]) -> List[str]:
+        """Showdown export (or packed) teams -> Showdown's packed format."""
+        return self.request("pack", teams=teams)["packed"]
+
     def stats(self, teams: List[str]) -> List[List[Dict]]:
         return self.request("stats", teams=teams)["stats"]
 

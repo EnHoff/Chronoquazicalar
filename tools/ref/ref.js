@@ -7,6 +7,7 @@
  * Usage: node tools/ref/ref.js <showdown-dir>
  *
  * Requests ({"id": any, "cmd": ..., ...}); every response echoes "id" and has "ok":
+ *   {"cmd": "pack", "teams": [export or packed team, ...]} -> {"packed": [packed team, ...]}
  *   {"cmd": "stats", "teams": [packed team, ...]}
  *       -> {"stats": [[{species, maxhp, stats: {atk, def, spa, spd, spe}}, ...], ...]}
  *   {"cmd": "calc", "attacker": P, "defender": P, "move": M, "field": F}
@@ -240,6 +241,7 @@ function cmdChoose(req) {
 }
 
 const COMMANDS = {
+	pack: req => ({packed: req.teams.map(toPacked)}),
 	stats: cmdStats,
 	calc: cmdCalc,
 	start: cmdStart,
