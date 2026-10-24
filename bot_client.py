@@ -69,12 +69,15 @@ class ChronosPlayer(Player):
         search_time_budget: float = 1.0,
         account_configuration: Optional[AccountConfiguration] = None,
         server_configuration=LocalhostServerConfiguration,
+        battle_format: str = "gen9randombattle",
+        team: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(
             account_configuration=account_configuration,
             server_configuration=server_configuration,
-            battle_format="gen9randombattle",
+            battle_format=battle_format,
+            team=team,
             **kwargs,
         )
 
@@ -587,6 +590,40 @@ class ChronosPlayer(Player):
 
         return best_pkm, best_score
 
+    def _matchup_score(self, pkm, opponents) -> float:
+        """Sum over opponents of (best offensive move multiplier) - (worst defensive type multiplier)."""
+        my_types = [t for t in (pkm.types or []) if t]
+        score = 0.0
+        for opp in opponents:
+            best_off = 1.0
+            for m in (pkm.moves or {}).values():
+                if get_effective_base_power(m, self.move_to_idx) <= 0 or not m.type:
+                    continue
+                stab = 1.5 if m.type in my_types else 1.0
+                best_off = max(best_off, self._get_effective_multiplier(opp, m) * stab)
+            worst_def = 1.0
+            for t in [t for t in (opp.types or []) if t]:
+                try:
+                    worst_def = max(worst_def, float(pkm.damage_multiplier(t)))
+                except Exception:
+                    pass
+            score += best_off - worst_def
+        return score
+
+    def teampreview(self, battle) -> str:
+        """Lead with the team member that has the best type matchup vs the opponent's previewed six.
+        The rest keep the team file's order."""
+        team = list(battle.team.values())
+        opponents = list(battle.teampreview_opponent_team or [])
+        order = list(range(1, len(team) + 1))
+        if team and opponents:
+            lead = max(order, key=lambda i: self._matchup_score(team[i - 1], opponents))
+            order.remove(lead)
+            order.insert(0, lead)
+        for i in order:
+            team[i - 1]._selected_in_teampreview = True
+        return "/team " + "".join(str(i) for i in order)
+
     def choose_move(self, battle: Battle) -> BattleOrder:
         state = self._battle_to_battle_state(battle)
         act_p1 = battle.active_pokemon
@@ -685,15 +722,30 @@ class ChronosPlayer(Player):
         return self.choose_random_move(battle)
 
 
-async def run_local_battles(num_battles: int = 5, checkpoint_path: Optional[Path] = None):
+def load_team(team_path: Optional[str]) -> Optional[str]:
+    """Read a Showdown export-format team file, or None for formats that generate teams."""
+    if not team_path:
+        return None
+    return Path(team_path).read_text(encoding="utf-8")
+
+
+async def run_local_battles(
+    num_battles: int = 5,
+    checkpoint_path: Optional[Path] = None,
+    battle_format: str = "gen9randombattle",
+    team: Optional[str] = None,
+):
     chronos = ChronosPlayer(
         checkpoint_path=checkpoint_path,
         search_time_budget=1.0,
         max_concurrent_battles=1,
+        battle_format=battle_format,
+        team=team,
     )
     opponent = SimpleHeuristicsPlayer(
         server_configuration=LocalhostServerConfiguration,
-        battle_format="gen9randombattle",
+        battle_format=battle_format,
+        team=team,
         max_concurrent_battles=1,
     )
 
@@ -708,6 +760,8 @@ async def run_ladder(
     password: str,
     checkpoint_path: Optional[Path] = None,
     num_battles: int = 10,
+    battle_format: str = "gen9randombattle",
+    team: Optional[str] = None,
 ):
     account = AccountConfiguration(username, password)
     chronos = ChronosPlayer(
@@ -716,6 +770,8 @@ async def run_ladder(
         server_configuration=ShowdownServerConfiguration,
         search_time_budget=2.0,
         max_concurrent_battles=1,
+        battle_format=battle_format,
+        team=team,
     )
 
     await chronos.ladder(num_battles)
@@ -739,9 +795,15 @@ def main():
     parser.add_argument("--ladder", action="store_true", help="Queue on public ladder")
     parser.add_argument("--username", type=str, help="Showdown account username")
     parser.add_argument("--password", type=str, help="Showdown account password")
+    parser.add_argument("--format", type=str, default="gen9randombattle", help="Battle format, e.g. gen9ou")
+    parser.add_argument("--team", type=str, help="Team file in Showdown export format (required for gen9ou)")
     args = parser.parse_args()
 
     ckpt_path = Path(args.checkpoint) if args.checkpoint else None
+    team = load_team(args.team)
+    if team is None and "random" not in args.format:
+        print(f"Error: --team is required for {args.format}")
+        return
 
     if args.ladder:
         if not args.username or not args.password:
@@ -753,10 +815,19 @@ def main():
                 args.password,
                 checkpoint_path=ckpt_path,
                 num_battles=args.battles,
+                battle_format=args.format,
+                team=team,
             )
         )
     else:
-        asyncio.run(run_local_battles(num_battles=args.battles, checkpoint_path=ckpt_path))
+        asyncio.run(
+            run_local_battles(
+                num_battles=args.battles,
+                checkpoint_path=ckpt_path,
+                battle_format=args.format,
+                team=team,
+            )
+        )
 
 
 if __name__ == "__main__":

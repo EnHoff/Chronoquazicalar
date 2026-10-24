@@ -1,0 +1,61 @@
+Great Tusk @ Booster Energy
+Ability: Protosynthesis
+Tera Type: Steel
+EVs: 252 Atk / 4 SpD / 252 Spe
+Jolly Nature
+- Headlong Rush
+- Ice Spinner
+- Rapid Spin
+- Knock Off
+
+Kingambit @ Leftovers
+Ability: Supreme Overlord
+Tera Type: Dark
+EVs: 252 HP / 252 Atk / 4 SpD
+Adamant Nature
+- Swords Dance
+- Kowtow Cleave
+- Sucker Punch
+- Iron Head
+
+Gholdengo @ Choice Scarf
+Ability: Good as Gold
+Tera Type: Steel
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+IVs: 0 Atk
+- Make It Rain
+- Shadow Ball
+- Trick
+- Focus Blast
+
+Dragapult @ Heavy-Duty Boots
+Ability: Infiltrator
+Tera Type: Ghost
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Draco Meteor
+- Shadow Ball
+- Flamethrower
+- U-turn
+
+Iron Valiant @ Booster Energy
+Ability: Quark Drive
+Tera Type: Fairy
+EVs: 252 SpA / 4 SpD / 252 Spe
+Timid Nature
+- Moonblast
+- Shadow Ball
+- Vacuum Wave
+- Calm Mind
+
+Toxapex @ Black Sludge
+Ability: Regenerator
+Tera Type: Fairy
+EVs: 252 HP / 252 Def / 4 SpD
+Bold Nature
+IVs: 0 Atk
+- Surf
+- Haze
+- Recover
+- Toxic Spikes
