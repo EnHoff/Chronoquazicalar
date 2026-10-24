@@ -1,0 +1,188 @@
+{
+  "built": "2026-10-24T21:38:32Z",
+  "build_seconds": 47.4,
+  "showdown_commit": "c0845f33d381402dfcb18ce324c20a94f18af075",
+  "format": "gen9ou",
+  "stats_months": [
+    "2026-09",
+    "2026-08",
+    "2026-07"
+  ],
+  "ref_month": "2026-09",
+  "sources": {
+    "fetched": "2026-10-24T21:29:03Z",
+    "stats_months": [
+      "2026-09",
+      "2026-08",
+      "2026-07"
+    ],
+    "files": [
+      {
+        "name": "metamon/README",
+        "url": "hf://datasets/jakegrigsby/metamon-teams/README.md",
+        "path": "cache/metamon/README.md",
+        "sha256": "7e6f5562e4f29d524ca8907499a0a10a017a921456553fae2595a0c44e895b01",
+        "bytes": 3532,
+        "retrieved": "2026-10-24T21:28:58Z",
+        "month": null,
+        "note": null
+      },
+      {
+        "name": "metamon/hl_05_26",
+        "url": "hf://datasets/jakegrigsby/metamon-teams/hl_05_26/gen9ou.tar.gz",
+        "path": "cache/metamon/hl_05_26/gen9ou.tar.gz",
+        "sha256": "160111d92244cb729f17c06cd860a8a31bbe7e62928ab1b4bff71d7f2b7d2607",
+        "bytes": 8007168,
+        "retrieved": "2026-10-24T21:28:58Z",
+        "month": "2026-05",
+        "note": null
+      },
+      {
+        "name": "metamon/competitive",
+        "url": "hf://datasets/jakegrigsby/metamon-teams/competitive/gen9ou.tar.gz",
+        "path": "cache/metamon/competitive/gen9ou.tar.gz",
+        "sha256": "ab8ede8d06e0247b9c3b7385823c3fcb5b2d5615162072736197005a90770f11",
+        "bytes": 4299,
+        "retrieved": "2026-10-24T21:28:58Z",
+        "month": null,
+        "note": null
+      },
+      {
+        "name": "chaos/2026-09/1695",
+        "url": "https://www.smogon.com/stats/2026-09/chaos/gen9ou-1695.json",
+        "path": "cache/chaos/2026-09-gen9ou-1695.json",
+        "sha256": "b7bdc403c166d5f6eeb03b258452c12f97296b1ed1d83a1980c878b404c330b2",
+        "bytes": 9151416,
+        "retrieved": "2026-10-24T21:28:59Z",
+        "month": "2026-09",
+        "note": null
+      },
+      {
+        "name": "chaos/2026-09/1825",
+        "url": "https://www.smogon.com/stats/2026-09/chaos/gen9ou-1825.json",
+        "path": "cache/chaos/2026-09-gen9ou-1825.json",
+        "sha256": "829618fcb551ca4765a728f62ff5a1ad8a9bcb5458b6c0c199f6c31c2b9f9927",
+        "bytes": 7270227,
+        "retrieved": "2026-10-24T21:29:00Z",
+        "month": "2026-09",
+        "note": null
+      },
+      {
+        "name": "chaos/2026-08/1695",
+        "url": "https://www.smogon.com/stats/2026-08/chaos/gen9ou-1695.json",
+        "path": "cache/chaos/2026-08-gen9ou-1695.json",
+        "sha256": "a929e77caf0f9a41350967fc6de19bb3a30e41161e98c374e2877589e6a74626",
+        "bytes": 9665194,
+        "retrieved": "2026-10-24T21:29:00Z",
+        "month": "2026-08",
+        "note": null
+      },
+      {
+        "name": "chaos/2026-08/1825",
+        "url": "https://www.smogon.com/stats/2026-08/chaos/gen9ou-1825.json",
+        "path": "cache/chaos/2026-08-gen9ou-1825.json",
+        "sha256": "bcd9f9f61e156bb5903b798f71df1dafa460a2a24a301e3a3abedd6145af1eeb",
+        "bytes": 7859561,
+        "retrieved": "2026-10-24T21:29:01Z",
+        "month": "2026-08",
+        "note": null
+      },
+      {
+        "name": "chaos/2026-07/1695",
+        "url": "https://www.smogon.com/stats/2026-07/chaos/gen9ou-1695.json",
+        "path": "cache/chaos/2026-07-gen9ou-1695.json",
+        "sha256": "45462fa431b34324d12ad958a65158011aa439b7a1a41a481a2546eff3c8842c",
+        "bytes": 9673798,
+        "retrieved": "2026-10-24T21:29:02Z",
+        "month": "2026-07",
+        "note": null
+      },
+      {
+        "name": "chaos/2026-07/1825",
+        "url": "https://www.smogon.com/stats/2026-07/chaos/gen9ou-1825.json",
+        "path": "cache/chaos/2026-07-gen9ou-1825.json",
+        "sha256": "0711a85b4f03df9b3262c13a1657f5f6cea422198dbfaca224e970f5e867b069",
+        "bytes": 7658164,
+        "retrieved": "2026-10-24T21:29:03Z",
+        "month": "2026-07",
+        "note": null
+      },
+      {
+        "name": "smogon/analysis_sets",
+        "url": "https://pkmn.github.io/smogon/data/sets/gen9ou.json",
+        "path": "cache/smogon/gen9ou-sets.json",
+        "sha256": "a45e24314cb57809ebb0dc8b7b32c017a25c4730e37242b93c09ae97962efe76",
+        "bytes": 55912,
+        "retrieved": "2026-10-24T21:29:03Z",
+        "month": null,
+        "note": null
+      },
+      {
+        "name": "showdown/factory_sets_ou",
+        "url": "pokemon-showdown@c0845f33d381402dfcb18ce324c20a94f18af075:data/random-battles/gen9/factory-sets.json",
+        "path": "cache/factory/gen9-factory-ou.json",
+        "sha256": "a66ad3b5e75860928d4a1584cfd48e6b20c3a229507578982036474d5f9aab6c",
+        "bytes": 77714,
+        "retrieved": "2026-10-24T21:29:03Z",
+        "month": null,
+        "note": null
+      }
+    ]
+  },
+  "counts": {
+    "candidates": 43780,
+    "valid": 43775,
+    "pool": 43707,
+    "dropped": {
+      "banned": 5
+    },
+    "dedup": {
+      "exact": 0,
+      "near": 68
+    },
+    "per_source": {
+      "metamon/hl_05_26": {
+        "candidates": 43764,
+        "valid": 43764,
+        "pool": 43696
+      },
+      "metamon/competitive": {
+        "candidates": 16,
+        "valid": 11,
+        "dropped": 5,
+        "pool": 11
+      }
+    },
+    "archetype_species": 388,
+    "usage_species": 350,
+    "eval_teams": 20
+  },
+  "coverage": {
+    "95": {
+      "coverage": 0.95018,
+      "move": 336,
+      "item": 64,
+      "ability": 138
+    },
+    "99": {
+      "coverage": 0.990109,
+      "move": 395,
+      "item": 81,
+      "ability": 181
+    }
+  },
+  "set_coverage": {
+    "95": {
+      "coverage": 0.950464,
+      "move": 247,
+      "item": 49,
+      "ability": 88
+    },
+    "99": {
+      "coverage": 0.990041,
+      "move": 332,
+      "item": 64,
+      "ability": 132
+    }
+  }
+}
