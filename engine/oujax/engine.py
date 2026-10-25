@@ -871,6 +871,11 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
             st = fn(st, order[i])
         return st
 
+    def group(fn, st):
+        # Showdown checks for a winner between residual effects and stops once a side is out
+        live = ~jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)
+        return jax.tree.map(lambda a, b: jnp.where(live, a, b), fn(st), st)
+
     # 1. Weather: count down, then sandstorm damage
     w_turns = jnp.where(cond & (st.weather > 0), st.weather_turns - 1, st.weather_turns)
     ends = cond & (st.weather > 0) & (w_turns <= 0)
@@ -888,7 +893,7 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.weather == SAND) & ~immune)
         return eat_sitrus(st, s)
 
-    st = each(sand, st)
+    st = group(lambda x: each(sand, x), st)
 
     # 2. Grassy Terrain heal, then Leftovers / Black Sludge (onResidualOrder 5)
     def grassy(st, s):
@@ -897,7 +902,7 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
             st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.terrain == G_TERRAIN) & grounded(st, s, slot)
         )
 
-    st = each(grassy, st)
+    st = group(lambda x: each(grassy, x), st)
 
     def leftovers(st, s):
         slot = act(st, s)
@@ -910,7 +915,7 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         st = lose_hp(st, s, slot, maxhp // 8, cond & (item == ITEM.blacksludge) & ~poison)
         return eat_sitrus(st, s)
 
-    st = each(leftovers, st)
+    st = group(lambda x: each(leftovers, x), st)
 
     # 3. Poison (order 9), then burn (order 10)
     def poison(st, s):
@@ -928,14 +933,14 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         st = lose_hp(st, s, slot, jnp.maximum(maxhp // 16, 1) * stage, is_tox)
         return eat_sitrus(st, s)
 
-    st = each(poison, st)
+    st = group(lambda x: each(poison, x), st)
 
     def burn(st, s):
         slot = act(st, s)
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.status[s, slot] == BRN))
         return eat_sitrus(st, s)
 
-    st = each(burn, st)
+    st = group(lambda x: each(burn, x), st)
 
     # 4. Roost ends (25); screens and Tailwind count down (26); Trick Room and terrain count down (27)
     st = st.replace(roosted=jnp.where(cond, False, st.roosted))
