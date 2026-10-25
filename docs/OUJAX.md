@@ -76,3 +76,21 @@ The harness needs `cd tools/ref && npm install` once and the Showdown clone next
 (`docs/SETUP.md`). Known Showdown-vs-calc difference: calc never lets Knock Off remove Booster Energy from a
 Paradox Pokemon, but Showdown's dex doesn't tag Raging Bolt / Gouging Fire / Iron Boulder / Iron Crown as
 Paradox; OU-JAX follows Showdown (pinned by an L2 test).
+
+## M2 results (Showdown `c0845f33`, RTX 4060 Laptop, WSL2)
+
+| Check | Result |
+|---|---|
+| L1 stats | 3,120 Pokemon (20 eval + 500 pool teams) match Showdown exactly |
+| L1 damage | 4,000 random cases per test run match `@smogon/calc` roll for roll (16,000 over four seeds, 0 mismatches), incl. Tera and Stellar Tera |
+| L2 | 10 scripted interaction scenarios match Showdown at every step |
+| L3a forced battles | 80/80 full battles on fresh M2-covered teams match turn by turn (50 on team seed 2, 30 on seed 3) |
+| L3b statistics | 30 scenarios x 200 samples x up to 4 turns: 72 KS / chi-square tests, min p = 0.061 (Bonferroni threshold 1.4e-4), 0 failures |
+| Throughput | 1.0M steps/s at 1,024 battles, 3.4M at 4,096, 9.5M at 16,384, 10.9M at 65,536; JIT ~50 s; peak GPU memory < 300 MB |
+| Coverage | 37,964 of 262,242 pool sets (14.5%) fully covered; no whole pool team yet (the M3 list is `python -m engine.oujax.coverage`) |
+
+Bugs that L3 found and that are now pinned by tests: Pressure targets (field moves count, foe-side moves
+only with `mustpressure`), typeless Struggle, Defog's evasion drop, Choice lock released by Knock Off, Sitrus
+Berry timing after Knock Off, Stellar Tera, sand-immune abilities, battle end mid-turn and mid-residual,
+Showdown's double-wipe rule (last to faint wins), Rest after waking, and Protect chain rules (no roll for
+the first Protect, a failed roll ends the chain).
