@@ -12,6 +12,7 @@ import random
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from engine.oujax.effects import _ITEM_EFFECTS as ITEM_EFFECTS
 from engine.oujax.effects import ABILITY, ITEM, T
 from engine.oujax.tables import MC, PSEUDO_WEATHERS, SIDE_CONDITIONS, VOLATILES
 
@@ -30,6 +31,9 @@ HANDWRITTEN_MOVES = {
     "stealthrock", "spikes", "toxicspikes", "stickyweb", "reflect", "lightscreen", "tailwind", "trickroom",
     "electricterrain", "grassyterrain", "mistyterrain", "psychicterrain", "sunnyday", "raindance", "sandstorm",
     "snowscape",
+    # M3 batch 1: base-power callbacks, type changes, effectiveness changes
+    "lowkick", "grassknot", "heavyslam", "heatcrash", "eruption", "waterspout", "dragonenergy", "storedpower",
+    "powertrip", "ruination", "superfang", "freezedry", "collisioncourse", "electrodrift", "ivycudgel", "poltergeist",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
@@ -47,7 +51,7 @@ SUPPORTED_SECONDARY_VOLATILES = {"", "flinch"}
 SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
-SUPPORTED_ITEMS = {"", *(k for k in vars(ITEM))}
+SUPPORTED_ITEMS = {"", *(k for k in vars(ITEM)), *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"]}
 SUPPORTED_ABILITIES = {*(k for k in vars(ABILITY)), *INERT_ABILITIES}
 
 
@@ -99,6 +103,7 @@ def coverage_report(pool_path: Path = POOL) -> Dict:
     from collections import Counter
 
     n_sets = n_cov_sets = n_teams = n_cov_teams = 0
+    w_all = w_cov = 0.0
     missing: Counter = Counter()
     with open(pool_path) as f:
         for line in f:
@@ -119,11 +124,14 @@ def coverage_report(pool_path: Path = POOL) -> Dict:
                         if not supported_move(m):
                             missing[("move", m)] += 1
             n_cov_teams += ok_team
+            w_all += t["weight"]
+            w_cov += t["weight"] if ok_team else 0.0
     return {
         "sets": n_sets,
         "covered_sets": n_cov_sets,
         "teams": n_teams,
         "covered_teams": n_cov_teams,
+        "weighted_team_coverage": round(w_cov / max(w_all, 1e-9), 4),
         "top_missing": missing.most_common(40),
     }
 

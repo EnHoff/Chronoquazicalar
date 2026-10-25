@@ -49,6 +49,7 @@ for (const s of dex.species.all().filter(available)) {
 		tier: s.tier,
 		requiredItem: s.requiredItem || null,
 		tags: s.tags || [],
+		nfe: !!s.nfe,
 		battleOnly: s.battleOnly || null,
 		otherFormes: s.otherFormes || [],
 	};

@@ -241,6 +241,28 @@ class TestL2Interactions(unittest.TestCase):
         self.play(team(DRAGAPULT, ZAPDOS), team(TYRAN, PEX), script, cfg=Config(forced=True, stall=False),
                   forced_opts={"stall": False})  # fmt: skip
 
+    def test_ruination_halves_current_hp(self):
+        # Ting-Lu's Ruination (half the target's current HP) after the target took hazard damage
+        tinglu = mon(
+            "Ting-Lu",
+            "Leftovers",
+            "Vessel of Ruin",
+            ["Ruination", "Stealth Rock", "Earthquake", "Spikes"],
+            tera="Poison",
+        )
+        self.play(team(tinglu, PEX), team(TUSK, CORV), [(0, 0), (1, 3), (3, 3), (0, 0), (0, 0)])
+
+    def test_air_balloon_pops_when_its_substitute_is_hit(self):
+        excadrill = mon(
+            "Excadrill",
+            "Air Balloon",
+            "Mold Breaker",
+            ["Substitute", "Earthquake", "Rapid Spin", "Iron Head"],
+            tera="Ground",
+        )
+        excadrill = excadrill.replace("Mold Breaker", "Sand Rush")
+        self.play(team(TUSK, PEX), team(excadrill, CORV), [(0, 0), (3, 0), (2, 0), (2, 0)])
+
 
 if __name__ == "__main__":
     unittest.main()

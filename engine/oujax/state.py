@@ -44,6 +44,7 @@ class Battle:
     boosts: jnp.ndarray  # (2, 7) int8 [atk, def, spa, spd, spe, accuracy, evasion]
     paradox_stat: jnp.ndarray  # (2,) int8: Protosynthesis / Quark Drive boosted stat (0 = none)
     paradox_from_item: jnp.ndarray  # (2,) bool: activated by Booster Energy (lasts until switch-out)
+    overlord_fallen: jnp.ndarray  # (2,) int8: Supreme Overlord's fainted-teammate count taken on switch-in
     choice_lock: jnp.ndarray  # (2,) int8 move slot, -1 = none
     protect_count: jnp.ndarray  # (2,) int8 consecutive successful Protects
     protect_used: jnp.ndarray  # (2,) bool: used a Protect-family move this turn
@@ -104,6 +105,7 @@ def init_battle(p1: TeamArrays, p2: TeamArrays) -> Battle:
         boosts=jnp.zeros((2, 7), jnp.int8),
         paradox_stat=zeros2(jnp.int8),
         paradox_from_item=zeros2(bool),
+        overlord_fallen=zeros2(jnp.int8),
         choice_lock=jnp.full((2,), -1, jnp.int8),
         protect_count=zeros2(jnp.int8),
         protect_used=zeros2(bool),

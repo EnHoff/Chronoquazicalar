@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from engine.oujax.damage import Combatant, FieldInfo, blocked_by_psychic_terrain, damage
+from engine.oujax.effects import _ITEM_EFFECTS as ITEM_EFFECTS
 from engine.oujax.effects import MOVE, T
 from engine.oujax.ref import RefHarness, harness_available
 from engine.oujax.tables import MC, SC, STATS
@@ -25,9 +26,25 @@ REPO = Path(__file__).resolve().parents[2]
 POOL = REPO / "data" / "ou" / "generated" / "team_pool.jsonl"
 N_CASES = 4000
 
-DAMAGE_ITEMS = {"choiceband", "choicespecs", "lifeorb", "expertbelt", "assaultvest", "airballoon", "boosterenergy"}
-DAMAGE_ABILITIES = {"protosynthesis", "quarkdrive", "levitate", "guts"}
-SPECIAL_MOVES = {MOVE.knockoff, MOVE.facade, MOVE.hex, MOVE.acrobatics, MOVE.weatherball}
+DAMAGE_ITEMS = {
+    "choiceband", "choicespecs", "lifeorb", "expertbelt", "assaultvest", "airballoon", "boosterenergy",
+    "wellspringmask", "hearthflamemask", "cornerstonemask", "souldew", "wiseglasses", "muscleband", "punchingglove",
+    "eviolite", *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"],
+}  # fmt: skip
+DAMAGE_ABILITIES = {
+    "protosynthesis", "quarkdrive", "levitate", "guts", "technician", "ironfist", "reckless", "toughclaws",
+    "sharpness", "strongjaw", "megalauncher", "supremeoverlord", "sandforce", "sheerforce", "punkrock", "hugepower",
+    "purepower", "torrent", "blaze", "overgrow", "swarm", "transistor", "dragonsmaw", "steelworker", "rockypayload",
+    "waterbubble", "solarpower", "adaptability", "tintedlens", "sniper", "liquidvoice", "multiscale", "shadowshield",
+    "filter", "solidrock", "prismarmor", "fluffy", "icescales", "thickfat", "heatproof", "purifyingsalt", "furcoat",
+    "vesselofruin", "tabletsofruin", "swordofruin", "beadsofruin",
+}  # fmt: skip
+SPECIAL_MOVES = {
+    MOVE.knockoff, MOVE.facade, MOVE.hex, MOVE.acrobatics, MOVE.weatherball, MOVE.lowkick, MOVE.grassknot,
+    MOVE.heavyslam, MOVE.heatcrash, MOVE.eruption, MOVE.waterspout, MOVE.dragonenergy, MOVE.storedpower,
+    MOVE.powertrip, MOVE.ruination, MOVE.superfang, MOVE.freezedry, MOVE.collisioncourse, MOVE.electrodrift,
+    MOVE.ivycudgel,
+}  # fmt: skip
 WEATHERS = ["", "Sun", "Rain", "Sand", "Snow"]
 TERRAINS = ["", "Electric", "Grassy", "Misty", "Psychic"]
 BOOST_KEYS = ("atk", "def", "spa", "spd", "spe")
@@ -36,7 +53,7 @@ BOOST_KEYS = ("atk", "def", "spa", "spd", "spe")
 def supported_damage_move(mid: int) -> bool:
     row = T.moves[mid]
     if row[MC["category"]] == 2 or row[MC["bp"]] == 0:
-        return False
+        return False  # incl. Ruination / Super Fang, which @smogon/calc doesn't model (Showdown L2 covers them)
     if row[MC["multihit_max"]] or row[MC["fixed_damage"]] or row[MC["ohko"]]:
         return False
     return not row[MC["has_handlers"]] or mid in SPECIAL_MOVES
@@ -88,9 +105,11 @@ class CaseBuilder:
         stats = calc_stats(
             base, np.array(s["evs"]), np.array(s["ivs"]), np.array(100), T.natures[T.nature_ids[s["nature"]]]
         )
+        hp = int(stats[0]) if r.random() < 0.5 else r.randint(1, int(stats[0]))
+        fallen = r.randint(0, 5) if as_attacker else 0
         return dict(
             set=s, item=item, ability=ability, boosts=boosts, status=status, tera=tera, sid=sid, stats=stats,
-            paradox=paradox_stat(ability, item, weather, terrain, stats, boosts),
+            paradox=paradox_stat(ability, item, weather, terrain, stats, boosts), hp=hp, fallen=fallen,
         )  # fmt: skip
 
     def case(self):
@@ -102,15 +121,24 @@ class CaseBuilder:
                 break
         weather, terrain = r.choice(WEATHERS), r.choice(TERRAINS)
         move = r.choice(moves)
+        # @smogon/calc applies defensive Protosynthesis / Quark Drive as 5324/4096, Showdown as 5325/4096, so they
+        # can round differently; OU-JAX follows Showdown and the full-battle L3 tests cover it
+        def_stat_for_move = 2 if T.moves[move, MC["category"]] == 0 else 4
+        if T.moves[move, MC["def_stat"]]:
+            def_stat_for_move = int(T.moves[move, MC["def_stat"]])
         if move == MOVE.knockoff and d_set["item"] == "boosterenergy":
             # @smogon/calc treats Booster Energy as unremovable from every Paradox Pokemon, Showdown only from
             # species tagged Paradox in its dex (not Raging Bolt, Gouging Fire, Iron Boulder, Iron Crown).
             # Showdown is checked separately in the L2 tests.
             d_set = dict(d_set, item="leftovers")
+        att = self.side(a_set, weather, terrain, True)
+        dfn = self.side(d_set, weather, terrain, False)
+        if dfn["paradox"] == def_stat_for_move:
+            dfn = dict(dfn, ability="pressure", paradox=0)
         return dict(
             move=move,
-            att=self.side(a_set, weather, terrain, True),
-            dfn=self.side(d_set, weather, terrain, False),
+            att=att,
+            dfn=dfn,
             weather=weather, terrain=terrain,
             reflect=r.random() < 0.15, light_screen=r.random() < 0.15, aurora_veil=r.random() < 0.1,
             crit=r.random() < 0.2, roll=r.randrange(16),
@@ -130,6 +158,8 @@ def calc_side(c):
         "ivs": dict(zip(STATS, s["ivs"])),
         "boosts": dict(zip(BOOST_KEYS, c["boosts"])),
         "status": c["status"],
+        "curHP": c["hp"],
+        "alliesFainted": c["fallen"],
     }
     if c["tera"]:
         out["teraType"] = dex["types"][s["tera"]]["name"]
@@ -176,6 +206,8 @@ def combatant(c) -> Combatant:
         item=T.item_ids[c["item"]],
         ability=T.ability_ids[c["ability"]],
         paradox_stat=c["paradox"],
+        hp=c["hp"],
+        fallen=c["fallen"],
     )
 
 

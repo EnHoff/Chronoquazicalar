@@ -29,9 +29,11 @@ from engine.oujax.damage import (
     blocked_by_psychic_terrain,
     boosted_stat,
     chain_if,
-    damage,
+    damage_finish,
+    damage_parts,
     has_type,
     modify,
+    move_type_and_bp,
     type_effectiveness,
 )
 from engine.oujax.effects import ABILITY, ITEM, ITEM_REMOVABLE, T
@@ -212,6 +214,8 @@ def combatant(st: Battle, s) -> Combatant:
         ability=_i(st.ability[s, slot]),
         paradox_stat=_i(st.paradox_stat[s]),
         stellar_used=st.stellar_used[s, slot],
+        hp=_i(st.hp[s, slot]),
+        fallen=_i(st.overlord_fallen[s]),
     )
 
 
@@ -267,8 +271,11 @@ def eat_sitrus(st: Battle, s):
 
 def status_immune(st: Battle, s, slot, status):
     t = types_now(st, s, slot)
+    ab = st.ability[s, slot]
     return (
-        ((status == BRN) & has_type(t, TY["fire"]))
+        (ab == ABILITY.purifyingsalt)
+        | ((status == BRN) & ((ab == ABILITY.waterbubble) | (ab == ABILITY.waterveil)))
+        | ((status == BRN) & has_type(t, TY["fire"]))
         | ((status == PAR) & has_type(t, TY["electric"]))
         | (((status == PSN) | (status == TOX)) & (has_type(t, TY["poison"]) | has_type(t, TY["steel"])))
         | ((status == FRZ) & has_type(t, TY["ice"]))
@@ -421,6 +428,13 @@ def reset_volatiles(st: Battle, s, cond):
 def enter_field(st: Battle, s, slot, cond):
     """Put team slot `slot` in side s's active position (no entry effects yet)."""
     st = st.replace(active=st.active.at[s].set(jnp.where(cond, slot, st.active[s]).astype(jnp.int8)))
+    # Supreme Overlord counts the side's fainted Pokemon when it comes in
+    fainted = jnp.sum((st.species[s] > 0) & (st.hp[s] == 0))
+    st = st.replace(
+        overlord_fallen=st.overlord_fallen.at[s].set(
+            jnp.where(cond, jnp.minimum(fainted, 5), st.overlord_fallen[s]).astype(jnp.int8)
+        )
+    )
     # Toxic counter restarts on switch-in
     tox = cond & (st.status[s, slot] == TOX)
     return st.replace(status_turns=st.status_turns.at[s, slot].set(jnp.where(tox, 0, st.status_turns[s, slot])))
@@ -595,6 +609,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     )
     fails |= heal_frac & (st.hp[s, slot] >= maxhp)
     fails |= (mid == MID["teleport"]) & ~bench_available(st, s)
+    fails |= (mid == MID["poltergeist"]) & (st.item[o, tslot] == 0)
     st = st.replace(protect_used=st.protect_used.at[s].set(st.protect_used[s] | (moves & is_protect)))
     proceeds = moves & ~fails
 
@@ -620,8 +635,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
 
     # Type immunity (damaging moves, and status moves that respect it like Thunder Wave)
     t_types = types_now(st, o, tslot)
-    mtype = jnp.where(mid == MID["weatherball"], weather_ball_type(st), row[MC["type"]])
-    immune, _ = type_effectiveness(mtype, t_types)
+    mtype, _ = move_type_and_bp(mid, combatant(st, s), combatant(st, o), _i(st.weather))
+    immune, _ = type_effectiveness(mtype, t_types, mid)
     immune |= (mtype == TY["ground"]) & ~grounded(st, o, tslot)
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
@@ -673,10 +688,22 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config):
     crit_stage = jnp.clip(row[MC["crit_ratio"]], 0, 4)
     bypass_sub = (row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0
     had_sub = active & (st.sub_hp[o] > 0) & ~bypass_sub
-    total = jnp.int32(0)
-    for h in range(MAX_HITS):
-        hk = jax.random.fold_in(keys[1], h)
-        kc, kr = jax.random.split(hk)
+    field = field_info(st, o)
+    # The per-move part of the damage formula is computed once (for both crit outcomes); each hit only runs
+    # the cheap per-hit part
+    will_crit = row[MC["crit_ratio"]] >= 5
+    att_c, def_c = combatant(st, s), combatant(st, o)
+    if cfg.forced:
+        parts_crit = parts_plain = damage_parts(mid, att_c, def_c, field, jnp.bool_(cfg.crit) | will_crit)
+    else:
+        parts_plain = damage_parts(mid, att_c, def_c, field, will_crit)
+        parts_crit = damage_parts(mid, att_c, def_c, field, jnp.bool_(True))
+    maxhp_o = _i(st.stats[o, tslot, 0])
+
+    def hit(h, carry):
+        # One hit, traced once and run MAX_HITS times by fori_loop (keeps the compiled step small)
+        st, total = carry
+        kc, kr = jax.random.split(jax.random.fold_in(keys[1], h))
         go = active & (h < n_hits) & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
         if cfg.forced:
             crit = jnp.bool_(cfg.crit)
@@ -685,10 +712,14 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config):
             crit = jax.random.randint(kc, (), 0, CRIT_DEN[jnp.maximum(crit_stage, 1)]) == 0
             crit = crit & (crit_stage > 0)
             roll = jax.random.randint(kr, (), 0, 16)
-        d = damage(mid, combatant(st, s), combatant(st, o), field_info(st, o), crit, roll)
+        crit = crit | will_crit
+        sub_now = go & (st.sub_hp[o] > 0) & ~bypass_sub
+        parts = jax.tree.map(lambda c, n: jnp.where(crit, c, n), parts_crit, parts_plain)
+        parts = parts._replace(berry=parts.berry & (st.item[o, tslot] == def_c.item))  # eaten by an earlier hit
+        d, berry = damage_finish(parts, crit, roll, _i(st.hp[o, tslot]), maxhp_o, sub_now, with_berry=True)
         # Seismic Toss / Night Shade: damage equals the user's level (type immunity already checked)
         d = jnp.where(row[MC["fixed_damage"]] == -1, _i(st.level[s, act(st, s)]), d)
-        sub_now = go & (st.sub_hp[o] > 0) & ~bypass_sub
+        berry = go & berry
         to_sub = jnp.minimum(d, _i(st.sub_hp[o]))
         st = st.replace(
             sub_hp=st.sub_hp.at[o].set(
@@ -697,13 +728,15 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config):
         )
         to_mon = jnp.minimum(d, _i(st.hp[o, tslot]))
         st = set_hp(st, o, tslot, jnp.where(go & ~sub_now, _i(st.hp[o, tslot]) - to_mon, st.hp[o, tslot]))
-        # Air Balloon pops when the holder itself is hit
-        pop = go & ~sub_now & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
-        st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop, 0, st.item[o, tslot])))
+        # Air Balloon pops on any damaging hit, including one that only hits its Substitute (onAfterSubDamage)
+        pop = go & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
+        st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop | berry, 0, st.item[o, tslot])))
         # Berries activate between hits of a multi-hit move; after the last hit they wait for the move's
         # after-hit effects (so Knock Off can remove a Sitrus Berry before it is eaten)
         st = _eat_if(st, o, go & (h + 1 < n_hits))
-        total += jnp.where(go, jnp.where(sub_now, to_sub, to_mon), 0)
+        return st, total + jnp.where(go, jnp.where(sub_now, to_sub, to_mon), 0)
+
+    st, total = jax.lax.fori_loop(0, MAX_HITS, hit, (st, jnp.int32(0)))
     return st, total, had_sub
 
 
@@ -723,19 +756,24 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     # Drain
     drain = (row[MC["drain_num"]] > 0) & connected
     st = gain_hp(st, s, slot, js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]]), drain)
-    # Rocky Helmet on contact (not through a substitute)
-    contact = (row[MC["flags"]] & FLAG_BIT["contact"]) > 0
+    # Rocky Helmet on contact (not through a substitute; Punching Glove makes punches non-contact)
+    punch = (row[MC["flags"]] & FLAG_BIT["punch"]) > 0
+    contact = ((row[MC["flags"]] & FLAG_BIT["contact"]) > 0) & ~(punch & (st.item[s, slot] == ITEM.punchingglove))
+    # Sheer Force drops the move's secondary effects (and its self effects) and Life Orb recoil
+    sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & (
+        (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
+    )
     helmet = connected & contact & ~hit_sub & (st.item[o, tslot] == ITEM.rockyhelmet)
     st = lose_hp(st, s, slot, maxhp // 6, helmet)
     # Self stat drops / raises from the move (Close Combat, Draco Meteor, ...)
-    st, _ = apply_boosts(st, s, boosts_of(mid, "self_boost_"), landed & (st.hp[s, slot] > 0))
+    st, _ = apply_boosts(st, s, boosts_of(mid, "self_boost_"), landed & ~sheer_force & (st.hp[s, slot] > 0))
     # Secondary effect: one roll against the move's chance (100% effects always apply)
     if cfg.forced:
         sec_roll = jnp.int32(0 if cfg.secondaries else 99)
     else:
         sec_roll = jax.random.randint(key, (), 0, 100)
     k_status = jax.random.fold_in(key, 1)
-    sec = landed & (row[MC["sec_chance"]] > 0) & (sec_roll < row[MC["sec_chance"]])
+    sec = landed & ~sheer_force & (row[MC["sec_chance"]] > 0) & (sec_roll < row[MC["sec_chance"]])
     on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0)
     st, _ = try_set_status(
         st, o, tslot, row[MC["sec_status"]], k_status, cfg, cond=on_target & (row[MC["sec_status"]] > 0)
@@ -755,7 +793,7 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     st = lose_hp(st, s, slot, js_round_div(dealt * row[MC["recoil_num"]], row[MC["recoil_den"]]), recoil)
     struggle_recoil = landed & (mid == STRUGGLE)
     st = lose_hp(st, s, slot, js_round_div(maxhp, 4), struggle_recoil)
-    st = lose_hp(st, s, slot, maxhp // 10, landed & (st.item[s, slot] == ITEM.lifeorb))
+    st = lose_hp(st, s, slot, maxhp // 10, landed & ~sheer_force & (st.item[s, slot] == ITEM.lifeorb))
     return eat_sitrus(eat_sitrus(st, o), s)
 
 
@@ -897,6 +935,8 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         immune = has_type(t, TY["rock"]) | has_type(t, TY["ground"]) | has_type(t, TY["steel"])
         immune |= jnp.any(st.ability[s, slot] == SAND_IMMUNE_ABILITIES)
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.weather == SAND) & ~immune)
+        solar = cond & (st.weather == SUN) & (st.ability[s, slot] == ABILITY.solarpower)
+        st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 8, solar)
         return eat_sitrus(st, s)
 
     st = group(lambda x: each(sand, x), st)
@@ -943,7 +983,8 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
 
     def burn(st, s):
         slot = act(st, s)
-        st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.status[s, slot] == BRN))
+        burn_frac = jnp.where(st.ability[s, slot] == ABILITY.heatproof, 32, 16)  # Heatproof halves burn damage
+        st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // burn_frac, cond & (st.status[s, slot] == BRN))
         return eat_sitrus(st, s)
 
     st = group(lambda x: each(burn, x), st)

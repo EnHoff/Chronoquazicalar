@@ -87,7 +87,7 @@ MC = {c: i for i, c in enumerate(MOVE_COLUMNS)}
 
 SPECIES_COLUMNS = (
     *(f"base_{s}" for s in STATS), "type1", "type2", "weight_hg", "ability0", "ability1", "ability_h", "num",
-    "paradox",
+    "paradox", "nfe",
 )  # fmt: skip
 SC = {c: i for i, c in enumerate(SPECIES_COLUMNS)}
 
@@ -206,6 +206,7 @@ def load_tables(path: Path = DEX_PATH) -> Tables:
             row[SC[col]] = ability_ids.get(to_id(s["abilities"].get(key)), 0)
         row[SC["num"]] = s["num"]
         row[SC["paradox"]] = int("Paradox" in s.get("tags", []))
+        row[SC["nfe"]] = int(bool(s.get("nfe")))
 
     moves = np.zeros((len(move_ids), len(MOVE_COLUMNS)), np.int32)
     for mid, m in dex["moves"].items():

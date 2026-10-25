@@ -1,0 +1,114 @@
+{
+ "_source": "extracted from pokemon-showdown data/items.ts (see engine/oujax/effects.py)",
+ "resist_berries": {
+  "babiriberry": {
+   "super_effective_only": true,
+   "type": "steel"
+  },
+  "chartiberry": {
+   "super_effective_only": true,
+   "type": "rock"
+  },
+  "chilanberry": {
+   "super_effective_only": false,
+   "type": "normal"
+  },
+  "chopleberry": {
+   "super_effective_only": true,
+   "type": "fighting"
+  },
+  "cobaberry": {
+   "super_effective_only": true,
+   "type": "flying"
+  },
+  "colburberry": {
+   "super_effective_only": true,
+   "type": "dark"
+  },
+  "habanberry": {
+   "super_effective_only": true,
+   "type": "dragon"
+  },
+  "kasibberry": {
+   "super_effective_only": true,
+   "type": "ghost"
+  },
+  "kebiaberry": {
+   "super_effective_only": true,
+   "type": "poison"
+  },
+  "occaberry": {
+   "super_effective_only": true,
+   "type": "fire"
+  },
+  "passhoberry": {
+   "super_effective_only": true,
+   "type": "water"
+  },
+  "payapaberry": {
+   "super_effective_only": true,
+   "type": "psychic"
+  },
+  "rindoberry": {
+   "super_effective_only": true,
+   "type": "grass"
+  },
+  "roseliberry": {
+   "super_effective_only": true,
+   "type": "fairy"
+  },
+  "shucaberry": {
+   "super_effective_only": true,
+   "type": "ground"
+  },
+  "tangaberry": {
+   "super_effective_only": true,
+   "type": "bug"
+  },
+  "wacanberry": {
+   "super_effective_only": true,
+   "type": "electric"
+  },
+  "yacheberry": {
+   "super_effective_only": true,
+   "type": "ice"
+  }
+ },
+ "type_boost_items": {
+  "blackbelt": "fighting",
+  "blackglasses": "dark",
+  "charcoal": "fire",
+  "dracoplate": "dragon",
+  "dragonfang": "dragon",
+  "dreadplate": "dark",
+  "earthplate": "ground",
+  "fairyfeather": "fairy",
+  "fistplate": "fighting",
+  "flameplate": "fire",
+  "hardstone": "rock",
+  "icicleplate": "ice",
+  "insectplate": "bug",
+  "ironplate": "steel",
+  "magnet": "electric",
+  "meadowplate": "grass",
+  "metalcoat": "steel",
+  "mindplate": "psychic",
+  "miracleseed": "grass",
+  "mysticwater": "water",
+  "nevermeltice": "ice",
+  "pixieplate": "fairy",
+  "poisonbarb": "poison",
+  "sharpbeak": "flying",
+  "silkscarf": "normal",
+  "silverpowder": "bug",
+  "skyplate": "flying",
+  "softsand": "ground",
+  "spelltag": "ghost",
+  "splashplate": "water",
+  "spookyplate": "ghost",
+  "stoneplate": "rock",
+  "toxicplate": "poison",
+  "twistedspoon": "psychic",
+  "zapplate": "electric"
+ }
+}

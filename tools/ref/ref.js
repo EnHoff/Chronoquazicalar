@@ -11,7 +11,8 @@
  *   {"cmd": "stats", "teams": [packed team, ...]}
  *       -> {"stats": [[{species, maxhp, stats: {atk, def, spa, spd, spe}}, ...], ...]}
  *   {"cmd": "calc", "attacker": P, "defender": P, "move": M, "field": F}
- *       P: {species, level?, item?, ability?, nature?, evs?, ivs?, boosts?, status?, teraType?, curHP?, boostedStat?}
+ *       P: {species, level?, item?, ability?, nature?, evs?, ivs?, boosts?, status?, teraType?, curHP?, boostedStat?,
+ *          alliesFainted?}
  *          (teraType set = terastallized, as in @smogon/calc)
  *       M: {name, isCrit?, hits?, isStellarFirstUse?}   F: @smogon/calc Field options (weather, terrain, attackerSide, defenderSide)
  *       -> {"damage": [16 rolls] | number, "desc": string}
@@ -190,7 +191,7 @@ function cmdStats(req) {
 
 function calcPokemon(p) {
 	const opts = {};
-	for (const k of ['level', 'item', 'ability', 'nature', 'evs', 'ivs', 'boosts', 'status', 'teraType', 'curHP', 'boostedStat']) {
+	for (const k of ['level', 'item', 'ability', 'nature', 'evs', 'ivs', 'boosts', 'status', 'teraType', 'curHP', 'boostedStat', 'alliesFainted']) {
 		if (p[k] !== undefined && p[k] !== null && p[k] !== '') opts[k] = p[k];
 	}
 	return new calc.Pokemon(CALC_GEN, p.species, opts);
