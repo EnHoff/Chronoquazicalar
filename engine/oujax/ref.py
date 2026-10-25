@@ -11,6 +11,7 @@ Python bridge to the Node reference harness (tools/ref/ref.js): Showdown's own s
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,7 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REF_JS = REPO_ROOT / "tools" / "ref" / "ref.js"
-DEFAULT_SHOWDOWN_DIR = REPO_ROOT.parent / "pokemon-showdown"
+# Override with SHOWDOWN_DIR (e.g. when working from a git worktree that isn't next to the Showdown clone)
+DEFAULT_SHOWDOWN_DIR = Path(os.environ.get("SHOWDOWN_DIR", REPO_ROOT.parent / "pokemon-showdown"))
 
 
 class RefError(RuntimeError):

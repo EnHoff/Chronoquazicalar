@@ -19,6 +19,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
+from engine.oujax import hooks
 from engine.oujax.damage import (
     M_0_5,
     M_1_5,
@@ -140,6 +141,24 @@ class Config(NamedTuple):
     stall: bool = True
 
 
+class MoveCtx(NamedTuple):
+    """What move hooks (hooks.py) get about the move being used."""
+
+    s: jnp.ndarray  # user side
+    o: jnp.ndarray  # target side
+    slot: jnp.ndarray  # user's team slot
+    tslot: jnp.ndarray  # target's team slot
+    mid: jnp.ndarray  # move id (Struggle when struggling)
+    move_slot: jnp.ndarray
+    key: jnp.ndarray  # a key reserved for hooks
+    cfg: "Config"
+    is_status: jnp.ndarray
+    targets_foe: jnp.ndarray
+    foe_pending_move: jnp.ndarray  # move id the target will still use this turn after this one, 0 if none
+    moves: jnp.ndarray = jnp.bool_(False)  # the user gets to move (past sleep, paralysis, flinch, ...)
+    landed: jnp.ndarray = jnp.bool_(False)  # the move connected with its target (or succeeded, if self-targeted)
+
+
 # --- small helpers ---------------------------------------------------------------------------------
 
 
@@ -157,6 +176,47 @@ def chance(key, num, den, forced_value, cfg: Config):
     if cfg.forced:
         return jnp.bool_(forced_value)
     return jax.random.randint(key, (), 0, jnp.maximum(den, 1)) < num
+
+
+def vol(st: Battle, s, name: str):
+    """A family's per-active-Pokemon volatile slot (hooks.VOL)."""
+    return _i(st.vol[s, hooks.VOL.index[name]])
+
+
+def set_vol(st: Battle, s, name: str, value, cond=True):
+    i = hooks.VOL.index[name]
+    return st.replace(vol=st.vol.at[s, i].set(jnp.where(cond, value, st.vol[s, i]).astype(st.vol.dtype)))
+
+
+def mon_ex(st: Battle, s, slot, name: str):
+    return _i(st.mon_ex[s, slot, hooks.MON.index[name]])
+
+
+def set_mon_ex(st: Battle, s, slot, name: str, value, cond=True):
+    i = hooks.MON.index[name]
+    return st.replace(
+        mon_ex=st.mon_ex.at[s, slot, i].set(jnp.where(cond, value, st.mon_ex[s, slot, i]).astype(st.mon_ex.dtype))
+    )
+
+
+def side_ex(st: Battle, s, name: str):
+    return _i(st.side_ex[s, hooks.SIDE.index[name]])
+
+
+def set_side_ex(st: Battle, s, name: str, value, cond=True):
+    i = hooks.SIDE.index[name]
+    return st.replace(
+        side_ex=st.side_ex.at[s, i].set(jnp.where(cond, value, st.side_ex[s, i]).astype(st.side_ex.dtype))
+    )
+
+
+def field_ex(st: Battle, name: str):
+    return _i(st.field_ex[hooks.FIELD.index[name]])
+
+
+def set_field_ex(st: Battle, name: str, value, cond=True):
+    i = hooks.FIELD.index[name]
+    return st.replace(field_ex=st.field_ex.at[i].set(jnp.where(cond, value, st.field_ex[i]).astype(st.field_ex.dtype)))
 
 
 def mon(arr, s, slot):
@@ -248,13 +308,19 @@ def lose_hp(st: Battle, s, slot, amount, cond=True):
 def gain_hp(st: Battle, s, slot, amount, cond=True):
     """Battle.heal: truncate, at least 1, only for a living Pokemon below max HP."""
     amount = jnp.maximum(_i(amount), 1)
+    for h in hooks.handlers("can_heal"):
+        cond = cond & h(st, s, slot)
     hp = _i(st.hp[s, slot])
     new = jnp.where(cond & (hp > 0), hp + amount, hp)
     return set_hp(st, s, slot, new)
 
 
-def apply_boosts(st: Battle, s, deltas, cond=True):
-    """Add stat stage changes to side s's active Pokemon. Returns (state, whether any stage changed)."""
+def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False):
+    """Add stat stage changes to side s's active Pokemon. Returns (state, whether any stage changed).
+    from_foe: the change comes from the opposing Pokemon (Intimidate, a foe's move), for boost_change hooks."""
+    deltas = jnp.asarray(deltas, jnp.int32)
+    for h in hooks.handlers("boost_change"):
+        deltas = h(st, s, deltas, from_foe)
     old = st.boosts[s].astype(jnp.int32)
     new = jnp.clip(old + jnp.where(cond, deltas, 0), -6, 6)
     return st.replace(boosts=st.boosts.at[s].set(new.astype(st.boosts.dtype))), jnp.any(new != old)
@@ -272,8 +338,12 @@ def eat_sitrus(st: Battle, s):
 def status_immune(st: Battle, s, slot, status):
     t = types_now(st, s, slot)
     ab = st.ability[s, slot]
+    family = jnp.bool_(False)
+    for h in hooks.handlers("status_immune"):
+        family = family | h(st, s, slot, status)
     return (
-        (ab == ABILITY.purifyingsalt)
+        family
+        | (ab == ABILITY.purifyingsalt)
         | ((status == BRN) & ((ab == ABILITY.waterbubble) | (ab == ABILITY.waterveil)))
         | ((status == BRN) & has_type(t, TY["fire"]))
         | ((status == PAR) & has_type(t, TY["electric"]))
@@ -324,6 +394,8 @@ def action_speed(st: Battle, s):
     w = SPEED_ABILITY_WEATHER[st.ability[s, slot]]
     mod = chain_if(mod, (w > 0) & (w == st.weather), M_2)
     mod = chain_if(mod, st.tailwind[s] > 0, M_2)
+    for h in hooks.handlers("speed"):
+        mod = h(st, s, mod)
     spe = modify(spe, mod)
     spe = jnp.where(st.trick_room > 0, 10000 - spe, spe)
     return spe & 8191
@@ -398,6 +470,8 @@ def set_terrain(st: Battle, terrain, s, slot, cond):
 
 def switch_out(st: Battle, s, cond):
     """Leaving the field: Regenerator, Natural Cure, and every volatile resets."""
+    for h in hooks.handlers("switch_out"):
+        st = h(st, s, cond)
     slot = jnp.maximum(act(st, s), 0)
     alive = st.hp[s, slot] > 0
     regen = cond & alive & (st.ability[s, slot] == ABILITY.regenerator)
@@ -410,6 +484,12 @@ def switch_out(st: Battle, s, cond):
 def reset_volatiles(st: Battle, s, cond):
     def w(arr, value):
         return arr.at[s].set(jnp.where(cond, value, arr[s]).astype(arr.dtype))
+
+    keep = jnp.array(
+        [hooks.VOL.keep.get(n, False) for n in sorted(hooks.VOL.index, key=hooks.VOL.index.get)]
+        + [False] * (hooks.VOL_SIZE - len(hooks.VOL))
+    )
+    st = st.replace(vol=st.vol.at[s].set(jnp.where(cond & ~keep, 0, st.vol[s])))
 
     return st.replace(
         boosts=st.boosts.at[s].set(jnp.where(cond, 0, st.boosts[s])),
@@ -475,7 +555,10 @@ def run_switch_in(st: Battle, s, key, cfg: Config, cond):
     st, _ = set_weather(st, WEATHER_ABILITY[st.ability[s, slot]], s, slot, alive)
     st, _ = set_terrain(st, TERRAIN_ABILITY[st.ability[s, slot]], s, slot, alive)
     # Protosynthesis / Quark Drive and Booster Energy
-    return refresh_paradox(st)
+    st = refresh_paradox(st)
+    for h in hooks.handlers("switch_in"):
+        st = h(st, s, key, cfg, cond)
+    return st
 
 
 def switch_target(st: Battle, s, action):
@@ -517,7 +600,7 @@ def boosts_of(move_id, prefix):
     )
 
 
-def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg: Config):
+def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg: Config, foe_pending_move=0):
     """Side s's active Pokemon uses the move in `move_slot` (or Struggle). Returns (state, pivot), where
     pivot asks for a mid-turn switch from side s (U-turn, Volt Switch, Flip Turn, Parting Shot, Teleport,
     Chilly Reception)."""
@@ -532,6 +615,10 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     is_status = category == 2
     targets_foe = jnp.any(row[MC["target"]] == FOE_TARGETS)
     flags = row[MC["flags"]]
+    ctx = MoveCtx(
+        s=s, o=o, slot=slot, tslot=tslot, mid=mid, move_slot=move_slot, key=keys[12], cfg=cfg,
+        is_status=is_status, targets_foe=targets_foe, foe_pending_move=_i(foe_pending_move),
+    )  # fmt: skip
 
     # BeforeMove: sleep and freeze, flinch, full paralysis
     status = st.status[s, slot]
@@ -551,7 +638,11 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     blocked = (asleep & ~wakes) | ((status == FRZ) & ~thaws)
     blocked |= st.flinch[s]
     blocked |= (status == PAR) & chance(keys[1], 1, 4, cfg.full_para, cfg)
+    for h in hooks.handlers("before_move"):
+        st, b = h(st, ctx._replace(moves=user_alive & ~blocked))
+        blocked |= b
     moves = user_alive & ~blocked
+    ctx = ctx._replace(moves=moves)
 
     # Use the move: PP (Pressure costs one more), Choice lock
     target_alive = st.hp[o, tslot] > 0
@@ -610,6 +701,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     fails |= heal_frac & (st.hp[s, slot] >= maxhp)
     fails |= (mid == MID["teleport"]) & ~bench_available(st, s)
     fails |= (mid == MID["poltergeist"]) & (st.item[o, tslot] == 0)
+    for h in hooks.handlers("move_fails"):
+        fails |= h(st, ctx)
     st = st.replace(protect_used=st.protect_used.at[s].set(st.protect_used[s] | (moves & is_protect)))
     proceeds = moves & ~fails
 
@@ -641,8 +734,12 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
+    for h in hooks.handlers("try_hit"):
+        st, b = h(st, ctx._replace(landed=landed))
+        landed &= ~b
+    ctx = ctx._replace(landed=landed)
 
-    st, dealt, hit_sub = damage_phase(st, s, mid, landed & ~is_status, keys[4:10], cfg)
+    st, dealt, hit_sub = damage_phase(st, s, mid, landed & ~is_status, keys[4:10], cfg, ctx)
     # A Stellar Tera user spends the boost for this move's type once the move has dealt its damage
     stellar = landed & ~is_status & st.terastallized[s, slot] & (st.tera_type[s, slot] == TYPE_STELLAR)
     st = st.replace(
@@ -651,12 +748,18 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
         )
     )
     st = after_damage(st, s, mid, landed & ~is_status, dealt, hit_sub, keys[10], cfg)
+    for h in hooks.handlers("after_hit"):
+        st = h(st, ctx._replace(landed=landed & ~is_status), dealt, hit_sub)
     st, pivot_ok = status_phase(st, s, mid, landed & is_status, keys[11], cfg)
+    for h in hooks.handlers("status_move"):
+        st = h(st, ctx._replace(landed=landed & is_status))
     st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & is_protect)))
 
     # Pivot: damaging pivots switch if they connected; status pivots per status_phase
     self_switch = row[MC["self_switch"]] > 0
     pivot = self_switch & jnp.where(is_status, pivot_ok, landed) & (st.hp[s, slot] > 0) & bench_available(st, s)
+    for h in hooks.handlers("after_move"):
+        st = h(st, ctx)
     return st, pivot
 
 
@@ -673,7 +776,7 @@ def weather_ball_type(st: Battle):
     )
 
 
-def damage_phase(st: Battle, s, mid, active, keys, cfg: Config):
+def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = None):
     """All hits of a damaging move: per-hit crit and roll, Substitute absorption, Air Balloon, Sitrus.
     Returns (state, total damage dealt, whether a substitute took the hits)."""
     o = foe(s)
@@ -719,6 +822,11 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config):
         d, berry = damage_finish(parts, crit, roll, _i(st.hp[o, tslot]), maxhp_o, sub_now, with_berry=True)
         # Seismic Toss / Night Shade: damage equals the user's level (type immunity already checked)
         d = jnp.where(row[MC["fixed_damage"]] == -1, _i(st.level[s, act(st, s)]), d)
+        if ctx is not None:
+            # Hooks adjust damage to the Pokemon itself (Focus Sash, ...), not to its Substitute
+            for h in hooks.handlers("damage_taken"):
+                st, d_mon = h(st, ctx._replace(landed=go & ~sub_now), o, d)
+                d = jnp.where(sub_now, d, d_mon)
         berry = go & berry
         to_sub = jnp.minimum(d, _i(st.sub_hp[o]))
         st = st.replace(
@@ -921,13 +1029,14 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         return jax.tree.map(lambda a, b: jnp.where(live, a, b), fn(st), st)
 
     # 1. Weather: count down, then sandstorm damage
-    w_turns = jnp.where(cond & (st.weather > 0), st.weather_turns - 1, st.weather_turns)
-    ends = cond & (st.weather > 0) & (w_turns <= 0)
-    st = st.replace(
-        weather=jnp.where(ends, 0, st.weather).astype(jnp.int8),
-        weather_turns=jnp.where(ends, 0, w_turns).astype(jnp.int8),
-    )
-    st = refresh_paradox(st)
+    def weather_countdown(st):
+        w_turns = jnp.where(cond & (st.weather > 0), st.weather_turns - 1, st.weather_turns)
+        ends = cond & (st.weather > 0) & (w_turns <= 0)
+        st = st.replace(
+            weather=jnp.where(ends, 0, st.weather).astype(jnp.int8),
+            weather_turns=jnp.where(ends, 0, w_turns).astype(jnp.int8),
+        )
+        return refresh_paradox(st)
 
     def sand(st, s):
         slot = act(st, s)
@@ -939,16 +1048,12 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 8, solar)
         return eat_sitrus(st, s)
 
-    st = group(lambda x: each(sand, x), st)
-
     # 2. Grassy Terrain heal, then Leftovers / Black Sludge (onResidualOrder 5)
     def grassy(st, s):
         slot = act(st, s)
         return gain_hp(
             st, s, slot, _i(st.stats[s, slot, 0]) // 16, cond & (st.terrain == G_TERRAIN) & grounded(st, s, slot)
         )
-
-    st = group(lambda x: each(grassy, x), st)
 
     def leftovers(st, s):
         slot = act(st, s)
@@ -960,8 +1065,6 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         )
         st = lose_hp(st, s, slot, maxhp // 8, cond & (item == ITEM.blacksludge) & ~poison)
         return eat_sitrus(st, s)
-
-    st = group(lambda x: each(leftovers, x), st)
 
     # 3. Poison (order 9), then burn (order 10)
     def poison(st, s):
@@ -979,30 +1082,50 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         st = lose_hp(st, s, slot, jnp.maximum(maxhp // 16, 1) * stage, is_tox)
         return eat_sitrus(st, s)
 
-    st = group(lambda x: each(poison, x), st)
-
     def burn(st, s):
         slot = act(st, s)
         burn_frac = jnp.where(st.ability[s, slot] == ABILITY.heatproof, 32, 16)  # Heatproof halves burn damage
         st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // burn_frac, cond & (st.status[s, slot] == BRN))
         return eat_sitrus(st, s)
 
-    st = group(lambda x: each(burn, x), st)
-
     # 4. Roost ends (25); screens and Tailwind count down (26); Trick Room and terrain count down (27)
-    st = st.replace(roosted=jnp.where(cond, False, st.roosted))
-    st = st.replace(
-        screens=jnp.where(cond, jnp.maximum(st.screens - 1, 0), st.screens).astype(jnp.int8),
-        tailwind=jnp.where(cond, jnp.maximum(st.tailwind - 1, 0), st.tailwind).astype(jnp.int8),
-        trick_room=jnp.where(cond, jnp.maximum(st.trick_room - 1, 0), st.trick_room).astype(jnp.int8),
-    )
-    t_turns = jnp.where(cond & (st.terrain > 0), st.terrain_turns - 1, st.terrain_turns)
-    t_ends = cond & (st.terrain > 0) & (t_turns <= 0)
-    st = st.replace(
-        terrain=jnp.where(t_ends, 0, st.terrain).astype(jnp.int8),
-        terrain_turns=jnp.where(t_ends, 0, t_turns).astype(jnp.int8),
-    )
-    st = refresh_paradox(st)
+    def roost_end(st):
+        return st.replace(roosted=jnp.where(cond, False, st.roosted))
+
+    def side_countdown(st):
+        return st.replace(
+            screens=jnp.where(cond, jnp.maximum(st.screens - 1, 0), st.screens).astype(jnp.int8),
+            tailwind=jnp.where(cond, jnp.maximum(st.tailwind - 1, 0), st.tailwind).astype(jnp.int8),
+        )
+
+    def field_countdown(st):
+        st = st.replace(trick_room=jnp.where(cond, jnp.maximum(st.trick_room - 1, 0), st.trick_room).astype(jnp.int8))
+        t_turns = jnp.where(cond & (st.terrain > 0), st.terrain_turns - 1, st.terrain_turns)
+        t_ends = cond & (st.terrain > 0) & (t_turns <= 0)
+        st = st.replace(
+            terrain=jnp.where(t_ends, 0, st.terrain).astype(jnp.int8),
+            terrain_turns=jnp.where(t_ends, 0, t_turns).astype(jnp.int8),
+        )
+        return refresh_paradox(st)
+
+    # Built-in residuals and family residuals (hooks.residual) in onResidualOrder; each runs only while both
+    # sides still have Pokemon
+    builtin = [
+        (1, lambda x: each(sand, weather_countdown(x))),
+        (5.2, lambda x: each(grassy, x)),
+        (5.4, lambda x: each(leftovers, x)),
+        (9, lambda x: each(poison, x)),
+        (10, lambda x: each(burn, x)),
+        (25, roost_end),
+        (26, side_countdown),
+        (27, field_countdown),
+    ]
+    family = [
+        (order, (lambda fn, k: lambda x: fn(x, k, cfg, cond))(fn, jax.random.fold_in(key, i + 1)))
+        for i, (order, _, fn) in enumerate(hooks.residual_handlers())
+    ]
+    for _, fn in sorted(builtin + family, key=lambda e: e[0]):
+        st = group(fn, st)
 
     # Turn-scoped volatiles: flinch and Protect; the Protect chain breaks if Protect wasn't used this turn
     st = st.replace(
@@ -1030,13 +1153,8 @@ def legal_actions(st: Battle):
         benched = slots != slot
         rank = jnp.cumsum(benched) - 1
         sw = jnp.stack([jnp.any(benched & (rank == n) & alive) for n in range(5)])
-        # Moves: PP left, Choice lock, Assault Vest bans status moves
-        mids = _i(st.moves[s, slot])
-        has_pp = (st.pp[s, slot] > 0) & (mids > 0)
-        locked = choice_locked(st, s)
-        lock_ok = ~locked | (jnp.arange(4) == st.choice_lock[s])
-        av = (st.item[s, slot] == ITEM.assaultvest) & (MOVES[mids, MC["category"]] == 2)
-        mv = has_pp & lock_ok & ~av
+        # Moves: PP left, Choice lock, Assault Vest bans status moves, family restrictions
+        mv = move_mask(st, s)
         struggle = ~jnp.any(mv)
         mv = jnp.where(struggle, jnp.arange(4) == 0, mv)  # move action 0 = Struggle
         tera = mv & ~st.tera_used[s] & ~struggle
@@ -1061,13 +1179,22 @@ def choice_locked(st: Battle, s):
     return (st.choice_lock[s] >= 0) & holding
 
 
-def struggling(st: Battle, s):
+def move_mask(st: Battle, s):
+    """(4,) usable moves: PP left, Choice lock, Assault Vest bans status moves, then legal_moves hooks."""
     slot = jnp.maximum(act(st, s), 0)
     mids = _i(st.moves[s, slot])
+    has_pp = (st.pp[s, slot] > 0) & (mids > 0)
     locked = choice_locked(st, s)
     lock_ok = ~locked | (jnp.arange(4) == st.choice_lock[s])
     av = (st.item[s, slot] == ITEM.assaultvest) & (MOVES[mids, MC["category"]] == 2)
-    return ~jnp.any((st.pp[s, slot] > 0) & (mids > 0) & lock_ok & ~av)
+    mv = has_pp & lock_ok & ~av
+    for h in hooks.handlers("legal_moves"):
+        mv = h(st, s, mv)
+    return mv
+
+
+def struggling(st: Battle, s):
+    return ~jnp.any(move_mask(st, s))
 
 
 # --- step ------------------------------------------------------------------------------------------
@@ -1108,9 +1235,10 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     move_slot = jnp.where(move_action >= A_TERA, move_action - A_TERA, move_action)
     move_slot = jnp.clip(move_slot, 0, 3)
     struggle = jnp.stack([struggling(st, 0), struggling(st, 1)])
-    prio = jnp.stack(
-        [jnp.where(struggle[s], 0, _i(MOVES[st.moves[s, act(st, s), move_slot[s]], MC["priority"]])) for s in (0, 1)]
-    )
+    move_ids = jnp.stack([jnp.where(struggle[s], STRUGGLE, _i(st.moves[s, act(st, s), move_slot[s]])) for s in (0, 1)])
+    prio = jnp.stack([_i(MOVES[move_ids[s], MC["priority"]]) for s in (0, 1)])
+    for h in hooks.handlers("priority"):
+        prio = jnp.stack([h(st, s, move_ids[s], prio[s]) for s in (0, 1)])
     spe = jnp.stack([action_speed(st, 0), action_speed(st, 1)])
     first0 = p1_first(keys[1], prio, spe, cfg)
     order = jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
@@ -1125,7 +1253,8 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
         decided_now = jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)
         go = uses_move[s] & (pivot_side < 0) & ~decided_now
         last = ~(uses_move[o] & (i == 0))
-        st, pivot = run_move(st, s, move_slot[s], struggle[s], go, last, keys[2 + i], cfg)
+        foe_pending = jnp.where((i == 0) & uses_move[o], move_ids[o], 0)
+        st, pivot = run_move(st, s, move_slot[s], struggle[s], go, last, keys[2 + i], cfg, foe_pending)
         pivot = go & pivot
         # A pivot suspends the turn: remember the other side's move if it still has to act
         queued = jnp.where(pivot & (i == 0) & uses_move[o], queued.at[o].set(move_action[o]), queued)
@@ -1174,3 +1303,9 @@ def next_request(st: Battle, suspended, pivot_side, resume_after, queued, turn_o
         queued_action=jnp.where(live, jnp.where(suspended, queued, NO_ACTION), st.queued_action).astype(jnp.int8),
         turn=jnp.where(live & new_turn, st.turn + 1, st.turn).astype(jnp.int16),
     )
+
+
+# Mechanic families register their hooks on import; they use this module's helpers, so import them last
+from engine.oujax import families  # noqa: E402, F401
+
+hooks.check_sizes()

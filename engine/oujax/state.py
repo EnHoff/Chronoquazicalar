@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from engine.oujax import hooks
 from engine.oujax.team import TeamArrays
 
 PHASE_PREVIEW, PHASE_MOVE, PHASE_SWITCH = 0, 1, 2
@@ -68,6 +69,11 @@ class Battle:
     need_switch: jnp.ndarray  # (2,) bool: side must pick a switch in PHASE_SWITCH
     resume: jnp.ndarray  # () int8 RESUME_*: what is left of the turn after a mid-turn switch
     queued_action: jnp.ndarray  # (2,) int8: move action still to run after a pivot, -1 = none
+    # --- generic slots claimed by mechanic families (engine/oujax/hooks.py) -----------------------
+    vol: jnp.ndarray  # (2, VOL_SIZE) int16 per active Pokemon, reset on switch-out
+    mon_ex: jnp.ndarray  # (2, 6, MON_SIZE) int16 per team member
+    side_ex: jnp.ndarray  # (2, SIDE_SIZE) int16 side conditions
+    field_ex: jnp.ndarray  # (FIELD_SIZE,) int16 field conditions
     turn: jnp.ndarray  # () int16
     winner: jnp.ndarray  # () int8: -1 ongoing, 0 / 1 side won, 2 tie
     last_faint: jnp.ndarray  # () int8: side of the most recent Pokemon to faint (-1 none); wins a double wipe
@@ -126,6 +132,10 @@ def init_battle(p1: TeamArrays, p2: TeamArrays) -> Battle:
         need_switch=zeros2(bool),
         resume=jnp.int8(RESUME_NONE),
         queued_action=jnp.full((2,), NO_ACTION, jnp.int8),
+        vol=jnp.zeros((2, hooks.VOL_SIZE), jnp.int16),
+        mon_ex=jnp.zeros((2, 6, hooks.MON_SIZE), jnp.int16),
+        side_ex=jnp.zeros((2, hooks.SIDE_SIZE), jnp.int16),
+        field_ex=jnp.zeros((hooks.FIELD_SIZE,), jnp.int16),
         turn=jnp.int16(0),
         winner=jnp.int8(WINNER_NONE),
         last_faint=jnp.int8(-1),

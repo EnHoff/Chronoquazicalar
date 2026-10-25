@@ -13,6 +13,7 @@ Sources:
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -25,7 +26,7 @@ from typing import Dict, List, Optional
 OU_DIR = Path(__file__).resolve().parent
 CACHE_DIR = OU_DIR / "cache"
 GENERATED_DIR = OU_DIR / "generated"
-DEFAULT_SHOWDOWN_DIR = OU_DIR.parents[2] / "pokemon-showdown"
+DEFAULT_SHOWDOWN_DIR = Path(os.environ.get("SHOWDOWN_DIR", OU_DIR.parents[2] / "pokemon-showdown"))
 
 METAMON_REPO = "jakegrigsby/metamon-teams"
 METAMON_SETS = {

@@ -94,3 +94,25 @@ only with `mustpressure`), typeless Struggle, Defog's evasion drop, Choice lock 
 Berry timing after Knock Off, Stellar Tera, sand-immune abilities, battle end mid-turn and mid-residual,
 Showdown's double-wipe rule (last to faint wins), Rest after waking, and Protect chain rules (no roll for
 the first Protect, a failed roll ends the chain).
+
+## Adding a mechanic family (M3)
+
+New moves, items and abilities go in `engine/oujax/families/<family>.py`, not in `engine.py`:
+
+1. Claim state with `hooks.VOL.add("name")` (per active Pokemon, reset on switch-out), `hooks.MON.add` (per team
+   member), `hooks.SIDE.add` or `hooks.FIELD.add`, and read/write it with `engine.vol` / `engine.set_vol` and the
+   matching helpers.
+2. Register hooks with `@hooks.hook("event", priority=...)` or `@hooks.residual(order)`. The events and their
+   signatures are listed in `engine/oujax/hooks.py`. Hooks are traced into the jitted step, so they must be
+   branch-free (`jnp.where`), and gate every write on their condition.
+3. Import the module in `engine/oujax/families/__init__.py` and add its moves, items and abilities to the
+   implemented sets in `engine/oujax/coverage.py`.
+4. Test it in `engine/oujax/families/test_<family>.py`: L1 checks against the harness or `@smogon/calc`, and L2
+   forced-outcome scenarios against Showdown (`engine.oujax.bridge.Mirror`, as in `test_l2.py`).
+
+Damage modifiers live in `damage.py` (one owner at a time). When a family needs a new hook point, add a single
+`for h in hooks.handlers(...)` call at the right place in `engine.py`, plus its entry in `hooks.EVENTS` and the
+event list.
+
+Working from another checkout (e.g. a git worktree): set `SHOWDOWN_DIR=/path/to/pokemon-showdown`, and link
+the gitignored `tools/ref/node_modules` and `data/ou/generated` from the main checkout.
