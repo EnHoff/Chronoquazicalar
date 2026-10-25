@@ -71,3 +71,17 @@ Play against rotating eval teams with:
 ```bash
 python -m evaluation.run_local_ou --games 20 --opponent heuristic --rotate-teams
 ```
+
+## OU-JAX reference harness
+
+`tools/ref/ref.js` runs Showdown's own simulator and `@smogon/calc` (pinned in `tools/ref/package.json`)
+behind a JSON-lines protocol; `engine/oujax/ref.py` is the Python bridge used by the OU-JAX tests. Install
+its one dependency once:
+
+```bash
+cd tools/ref && npm install && cd ../..
+```
+
+Tests that need the harness skip themselves when node, the built Showdown clone or `node_modules` are missing.
+`node tools/ref/export_dex.js ../pokemon-showdown > engine/oujax/data/dex_gen9.json` regenerates the game data
+export from the pinned Showdown commit.

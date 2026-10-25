@@ -1,0 +1,8 @@
+{
+  "name": "chronoquazicalar-ref-harness",
+  "private": true,
+  "description": "Reference harness: Showdown's own sim and @smogon/calc as a test oracle for OU-JAX",
+  "dependencies": {
+    "@smogon/calc": "0.12.0"
+  }
+}
