@@ -25,8 +25,8 @@ from engine.oujax.state import init_battle
 from engine.oujax.engine import Config, legal_actions, step
 
 st = init_battle(load_packed_team(p1_packed), load_packed_team(p2_packed))
-mask = legal_actions(st)                  # (2, 13) bool
-st = step(st, actions, key, Config())     # actions: int (2,)
+mask = legal_actions(st)  # (2, 13) bool
+st = step(st, actions, key, Config())  # actions: int (2,)
 ```
 
 Requests follow Showdown: `st.phase` is team preview (actions = lead slot 0..5), a move turn (0..3 move,
