@@ -37,7 +37,7 @@ from engine.oujax.damage import (
     move_type_and_bp,
     type_effectiveness,
 )
-from engine.oujax.effects import ABILITY, ITEM, ITEM_REMOVABLE, T
+from engine.oujax.effects import ABILITY, BREAKABLE, ITEM, ITEM_REMOVABLE, T
 from engine.oujax.state import (
     HAZ_ROCKS,
     HAZ_SPIKES,
@@ -77,6 +77,7 @@ E_TERRAIN, G_TERRAIN, M_TERRAIN, P_TERRAIN = 1, 2, 3, 4
 TY = T.type_ids
 MID = T.move_ids
 ITEM_REMOVABLE_J = jnp.asarray(ITEM_REMOVABLE)
+BREAKABLE_J = jnp.asarray(BREAKABLE)
 VOL = {v: i for i, v in enumerate(VOLATILES)}
 SIDE = {v: i for i, v in enumerate(SIDE_CONDITIONS)}
 PSEUDO = {v: i for i, v in enumerate(PSEUDO_WEATHERS)}
@@ -217,6 +218,11 @@ def field_ex(st: Battle, name: str):
 def set_field_ex(st: Battle, name: str, value, cond=True):
     i = hooks.FIELD.index[name]
     return st.replace(field_ex=st.field_ex.at[i].set(jnp.where(cond, value, st.field_ex[i]).astype(st.field_ex.dtype)))
+
+
+def ignores_abilities_ab(ability):
+    """Mold Breaker / Teravolt / Turboblaze (by ability id)."""
+    return (ability == ABILITY.moldbreaker) | (ability == ABILITY.teravolt) | (ability == ABILITY.turboblaze)
 
 
 def mon(arr, s, slot):
@@ -720,7 +726,13 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     acc = jnp.where((mid == SPECIAL["thunder"]) & (st.weather == SUN), 50, acc)
     acc = jnp.where((mid == SPECIAL["toxic"]) & has_type(types_now(st, s, slot), TY["poison"]), 101, acc)
     acc = jnp.where(struggle, 101, acc)
-    stage = jnp.clip(_i(st.boosts[s, 5]) - _i(st.boosts[o, 6]), -6, 6)
+    # Unaware ignores the other side's accuracy / evasion stages (a Mold Breaker attacker ignores the target's)
+    target_unaware = (st.ability[o, tslot] == ABILITY.unaware) & ~(
+        ignores_abilities_ab(st.ability[s, slot]) & BREAKABLE_J[ABILITY.unaware]
+    )
+    acc_stage = jnp.where(target_unaware, 0, _i(st.boosts[s, 5]))
+    eva_stage = jnp.where(st.ability[s, slot] == ABILITY.unaware, 0, _i(st.boosts[o, 6]))
+    stage = jnp.clip(acc_stage - eva_stage, -6, 6)
     acc_mod = jnp.where(stage >= 0, acc * ACC_NUM[jnp.abs(stage)] // 3, acc * 3 // ACC_NUM[jnp.abs(stage)])
     needs_roll = targets_foe & (acc < 101)
     hits = ~needs_roll | chance(keys[3], acc_mod, 100, cfg.hit, cfg)
@@ -730,7 +742,9 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     t_types = types_now(st, o, tslot)
     mtype, _ = move_type_and_bp(mid, combatant(st, s), combatant(st, o), _i(st.weather))
     immune, _ = type_effectiveness(mtype, t_types, mid)
-    immune |= (mtype == TY["ground"]) & ~grounded(st, o, tslot)
+    # Levitate doesn't keep a Mold Breaker-type attacker's Ground moves off
+    breaks_levitate = ignores_abilities_ab(st.ability[s, slot]) & (st.ability[o, tslot] == ABILITY.levitate)
+    immune |= (mtype == TY["ground"]) & ~grounded(st, o, tslot) & ~breaks_levitate
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
@@ -789,7 +803,9 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         sampled = MULTIHIT_2_5[jax.random.randint(keys[0], (), 0, 8)]
         n_hits = jnp.where(mh_max == 0, 1, jnp.where(mh_min == mh_max, mh_min, sampled))
     crit_stage = jnp.clip(row[MC["crit_ratio"]], 0, 4)
-    bypass_sub = (row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0
+    bypass_sub = ((row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0) | (
+        st.ability[s, act(st, s)] == ABILITY.infiltrator
+    )
     had_sub = active & (st.sub_hp[o] > 0) & ~bypass_sub
     field = field_info(st, o)
     # The per-move part of the damage formula is computed once (for both crit outcomes); each hit only runs
@@ -917,7 +933,9 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
         | (row[MC["target"]] == TARGET_ID["all"])
     )
     on_foe = landed & ~targets_self
-    bypass_sub = (row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0
+    bypass_sub = ((row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0) | (
+        st.ability[s, act(st, s)] == ABILITY.infiltrator
+    )
     blocked_sub = on_foe & (st.sub_hp[o] > 0) & ~bypass_sub
     hits_foe = on_foe & ~blocked_sub
     maxhp = _i(st.stats[s, slot, 0])

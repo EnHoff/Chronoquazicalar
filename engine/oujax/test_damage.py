@@ -37,7 +37,8 @@ DAMAGE_ABILITIES = {
     "purepower", "torrent", "blaze", "overgrow", "swarm", "transistor", "dragonsmaw", "steelworker", "rockypayload",
     "waterbubble", "solarpower", "adaptability", "tintedlens", "sniper", "liquidvoice", "multiscale", "shadowshield",
     "filter", "solidrock", "prismarmor", "fluffy", "icescales", "thickfat", "heatproof", "purifyingsalt", "furcoat",
-    "vesselofruin", "tabletsofruin", "swordofruin", "beadsofruin",
+    "vesselofruin", "tabletsofruin", "swordofruin", "beadsofruin", "unaware", "moldbreaker", "teravolt",
+    "turboblaze", "infiltrator",
 }  # fmt: skip
 SPECIAL_MOVES = {
     MOVE.knockoff, MOVE.facade, MOVE.hex, MOVE.acrobatics, MOVE.weatherball, MOVE.lowkick, MOVE.grassknot,

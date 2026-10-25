@@ -34,7 +34,7 @@ ABILITY = _ns(
     "sheerforce punkrock hugepower purepower torrent blaze overgrow swarm transistor dragonsmaw steelworker "
     "rockypayload waterbubble solarpower adaptability tintedlens sniper liquidvoice multiscale shadowshield filter "
     "solidrock prismarmor fluffy icescales thickfat heatproof purifyingsalt furcoat vesselofruin tabletsofruin "
-    "swordofruin beadsofruin waterveil",
+    "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator",
 )
 MOVE = _ns(
     T.move_ids,
@@ -77,6 +77,11 @@ def _item_removable() -> np.ndarray:
 
 
 ITEM_REMOVABLE = _item_removable()
+
+# Abilities a Mold Breaker-type attacker ignores (Showdown's "breakable" flag)
+BREAKABLE = np.zeros(len(T.ability_ids), bool)
+for _aid, _a in T.dex["abilities"].items():
+    BREAKABLE[T.ability_ids[_aid]] = bool(_a.get("flags", {}).get("breakable"))
 
 _ITEM_EFFECTS = json.loads((Path(__file__).resolve().parent / "data" / "item_effects.json").read_text())
 

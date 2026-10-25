@@ -20,6 +20,7 @@ import jax.numpy as jnp
 
 from engine.oujax.effects import (
     ABILITY,
+    BREAKABLE,
     ITEM,
     ITEM_REMOVABLE,
     M_0_5,
@@ -41,6 +42,7 @@ from engine.oujax.effects import (
 from engine.oujax.tables import FLAG_BIT, MC, SC, STATUS_ID, TYPE_NONE, TYPE_STELLAR
 
 TYPE_CHART = jnp.asarray(T.type_chart)
+BREAKABLE_J = jnp.asarray(BREAKABLE)
 MOVES = jnp.asarray(T.moves)
 SPECIES = jnp.asarray(T.species)
 ITEM_REMOVABLE_J = jnp.asarray(ITEM_REMOVABLE)
@@ -211,8 +213,21 @@ def damage(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit, roll
     return damage_finish(parts, crit, roll, current_hp(dfn), dfn.stats[0], hits_sub, with_berry)
 
 
+def ignores_abilities(att: Combatant):
+    """Mold Breaker / Teravolt / Turboblaze."""
+    return (
+        (att.ability == ABILITY.moldbreaker) | (att.ability == ABILITY.teravolt) | (att.ability == ABILITY.turboblaze)
+    )
+
+
+def effective_defender(att: Combatant, dfn: Combatant) -> Combatant:
+    """The defender as the attacker's move sees it: a Mold Breaker-type attacker ignores breakable abilities."""
+    return dfn._replace(ability=jnp.where(ignores_abilities(att) & BREAKABLE_J[dfn.ability], 0, dfn.ability))
+
+
 def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit) -> Parts:
     """Per-move part of the formula for a given crit outcome (see Parts)."""
+    dfn = effective_defender(att, dfn)
     row = MOVES[move_id]
     category = row[MC["category"]]
     physical = category == 0
@@ -302,6 +317,10 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     off_boosts = jnp.where(off_target, dfn.boosts, att.boosts)
     atk_boost = off_boosts[off_stat - 1]
     def_boost = dfn.boosts[def_stat - 1]
+    # Unaware: a defender with it ignores the attacker's offensive stages (not the target's own for Foul Play);
+    # an attacker with it ignores the defender's defensive stages
+    atk_boost = jnp.where((dfn.ability == ABILITY.unaware) & ~off_target, 0, atk_boost)
+    def_boost = jnp.where(att.ability == ABILITY.unaware, 0, def_boost)
     atk_boost = jnp.where(crit & (atk_boost < 0), 0, atk_boost)
     def_boost = jnp.where((crit & (def_boost > 0)) | (row[MC["ignore_defensive"]] == 1), 0, def_boost)
     attack = boosted_stat(off_stats[off_stat], atk_boost)
@@ -387,6 +406,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     stab = jnp.where(stellar_fresh, jnp.where(stab_any, M_2, M_STELLAR), stab)
     burned = (att.status == BRN) & physical & (att.ability != ABILITY.guts) & (move_id != MOVE.facade)
     screen = (physical & (field.reflect | field.aurora_veil)) | (~physical & (field.light_screen | field.aurora_veil))
+    screen &= att.ability != ABILITY.infiltrator  # Infiltrator ignores screens
     fluffy_x = jnp.where(mtype == TY["fire"], 2.0, 1.0) * jnp.where(contact, 0.5, 1.0)
     berry_type = RESIST_BERRY_J[dfn.item]
     return Parts(
