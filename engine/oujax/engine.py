@@ -573,8 +573,14 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     fails |= (mid == MID["auroraveil"]) & (st.weather != SNOW)
     is_protect = (mid == SPECIAL["protect"]) | (mid == SPECIAL["detect"])
     stall_den = jnp.array([1, 3, 9, 27, 81, 243, 729])[jnp.minimum(st.protect_count[s], 6)]
-    protect_ok = ~last_to_act & chance(keys[2], 1, stall_den, cfg.stall, cfg)
+    # No chain yet: Showdown runs no stall roll at all, so the first Protect always works
+    stall_roll = (st.protect_count[s] == 0) | chance(keys[2], 1, stall_den, cfg.stall, cfg)
+    protect_ok = ~last_to_act & stall_roll
     fails |= is_protect & ~protect_ok
+    # A failed stall roll ends the Protect chain (Showdown deletes the 'stall' volatile), so the next Protect
+    # is back to a sure thing; failing only because nobody moves after it leaves the chain alone
+    chain_broken = moves & is_protect & ~last_to_act & ~stall_roll
+    st = st.replace(protect_count=st.protect_count.at[s].set(jnp.where(chain_broken, 0, st.protect_count[s])))
     maxhp = _i(st.stats[s, slot, 0])
     fails |= (mid == MID["substitute"]) & ((st.sub_hp[s] > 0) | (_i(st.hp[s, slot]) <= maxhp // 4))
     fails |= (mid == MID["rest"]) & (

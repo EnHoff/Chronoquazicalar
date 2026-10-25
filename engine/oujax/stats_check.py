@@ -59,8 +59,11 @@ def run_scenario(ref: RefHarness, p1: str, p2: str, n_turns: int, n_samples: int
 
     # Showdown with real randomness
     sd_out = []
+    # Independent 16-bit words for Showdown's Gen 5 PRNG: seeds differing in a single word give correlated
+    # draws (e.g. a 10% burn that never procs), so every word is random
+    seed_rng = np.random.default_rng([seed, 1])
     for i in range(n_samples):
-        battle, _ = ref.start(packed[0], packed[1], seed=[seed, i, 7, 11])
+        battle, _ = ref.start(packed[0], packed[1], seed=[int(x) for x in seed_rng.integers(0, 65536, 4)])
         try:
             state = None
             for acts in script:
