@@ -969,6 +969,11 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         # Air Balloon pops on any damaging hit, including one that only hits its Substitute (onAfterSubDamage)
         pop = go & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
         st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop | berry, 0, st.item[o, tslot])))
+        if ctx is not None:
+            # Showdown's DamagingHit: once per hit that damaged the Pokemon itself (contact abilities, ...)
+            hit_mon = go & ~sub_now & (to_mon > 0)
+            for hk in hooks.handlers("damaging_hit"):
+                st = hk(st, ctx._replace(landed=hit_mon), h, to_mon)
         # Berries activate between hits of a multi-hit move; after the last hit they wait for the move's
         # after-hit effects (so Knock Off can remove a Sitrus Berry before it is eaten)
         st = _eat_if(st, o, go & (h + 1 < n_hits))

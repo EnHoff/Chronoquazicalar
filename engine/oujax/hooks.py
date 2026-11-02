@@ -13,6 +13,8 @@ Events (arguments after the state; return value):
   try_hit(st, ctx)                      -> (st, blocked)   Showdown's TryHit step: after Protect, before type
                                                            immunity and accuracy (absorbing abilities);
                                                            ctx.landed = the move reaches the target
+  damaging_hit(st, ctx, hit, dmg)       -> st              once per hit that damaged the target itself (not its
+                                                           Substitute); ctx.landed = that happened (Static, ...)
   move_try_hit(st, ctx)                 -> st              the move's own onTryHit: after accuracy and immunity,
                                                            before a Substitute or damage (Brick Break)
   damage_taken(st, ctx, side, dmg)      -> (st, dmg)       adjust a hit's damage to the target (Focus Sash, ...)
@@ -48,7 +50,7 @@ from typing import Callable, Dict, List, Tuple
 EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
-    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit",
+    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
