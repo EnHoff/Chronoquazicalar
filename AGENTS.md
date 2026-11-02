@@ -1,0 +1,13 @@
+# Agent instructions
+
+Read `HANDOFF.md` first: goals, decisions, milestones and gates, environment, process rules and gotchas.
+
+Non-negotiables:
+- No test-time search: the bot plays straight from the policy network.
+- Independent randomness: every random check is its own draw; don't replicate Showdown's PRNG call order.
+- An efficient engine that makes a good model, not an exact replica. Decision-relevant mechanics must be right; ask Ian before simplifying a high-usage mechanic.
+- Every mismatch becomes an L1/L2 regression test before the fix. Never skip, weaken or quarantine a test.
+- Move/item/ability effects stay table-driven, with special cases in effect families (`engine/oujax/families/`, hooks); no per-move `lax.switch`.
+- Commit author: `Ian Hoff <111913350+EnHoff@users.noreply.github.com>`.
+- Never merge to main; Ian merges PRs.
+- Run `pytest` and `ruff check .` (conda env `chrono`) before each commit, and push after each batch.

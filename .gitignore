@@ -86,3 +86,6 @@ protobuf_wireformat_fix.patch
 # OU data pipeline: downloaded sources and generated artifacts (rebuild with python -m data.ou.build)
 data/ou/cache/
 data/ou/generated/
+
+# Agent worktrees
+.claude/worktrees/
