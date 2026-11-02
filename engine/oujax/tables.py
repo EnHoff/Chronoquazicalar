@@ -77,6 +77,7 @@ MOVE_COLUMNS = (
     "off_stat", "def_stat", "off_target",  # Body Press (def), Psyshock (def), Foul Play (target's atk)
     "ignore_defensive",  # Sacred Sword / Darkest Lariat ignore the target's defensive boosts
     "type_immunity",  # move respects type immunity (damaging moves; status moves with ignoreImmunity: false)
+    "multiaccuracy",  # each hit of a multi-hit move checks accuracy (Triple Axel, Population Bomb)
     *(f"boost_{b}" for b in BOOSTS),  # status-move boosts on the target (self for self-target moves)
     *(f"self_boost_{b}" for b in BOOSTS),  # move.self.boosts / selfBoost.boosts (e.g. Close Combat)
     *(f"sec_boost_{b}" for b in BOOSTS),  # secondary boosts on the target (e.g. Moonblast -1 SpA)
@@ -165,6 +166,7 @@ def _move_row(m: dict, type_ids: Dict[str, int], vol_ids: Dict[str, int]) -> Lis
         "def_stat": STAT_ID.get(m.get("overrideDefensiveStat") or "", 0),
         "off_target": int(m.get("overrideOffensivePokemon") == "target"),
         "ignore_defensive": int(bool(m.get("ignoreDefensive"))),
+        "multiaccuracy": int(bool(m.get("multiaccuracy"))),
         "type_immunity": int(m.get("ignoreImmunity") is False or (m["category"] != "Status" and not m.get("ignoreImmunity"))),
         "has_handlers": int(bool(m.get("handlers") or m.get("conditionHandlers"))),
     }  # fmt: skip

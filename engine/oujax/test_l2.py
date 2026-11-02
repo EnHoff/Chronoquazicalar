@@ -128,8 +128,9 @@ SKARM = mon(
 )
 
 
-@unittest.skipUnless(harness_available(), "reference harness not installed")
-class TestL2Interactions(unittest.TestCase):
+class MirrorScenarios:
+    """Mixin for unittest.TestCase classes that play scripted scenarios in both engines."""
+
     @classmethod
     def setUpClass(cls):
         cls.ref = RefHarness()
@@ -143,7 +144,7 @@ class TestL2Interactions(unittest.TestCase):
         replacements, pivots) are answered automatically with the first legal switch."""
         for t in (p1, p2):
             moves = [to_id(line[2:]) for line in t.splitlines() if line.startswith("- ")]
-            self.assertEqual([mv for mv in moves if not supported_move(mv)], [], "scenario uses moves outside M2")
+            self.assertEqual([mv for mv in moves if not supported_move(mv)], [], "scenario uses unsupported moves")
         m = Mirror.start(self.ref, p1, p2, cfg, forced_opts=forced_opts)
 
         def advance(acts, label):
@@ -172,6 +173,9 @@ class TestL2Interactions(unittest.TestCase):
         finally:
             m.end()
 
+
+@unittest.skipUnless(harness_available(), "reference harness not installed")
+class TestL2Interactions(MirrorScenarios, unittest.TestCase):
     def test_pivot_into_hazards_and_rocky_helmet(self):
         # p1 Tusk sets Rocks; p2 Corviknight U-turns into Rocks (Rocky Helmet on Tusk? no: on Corviknight)
         self.play(team(TUSK, PEX), team(CORV, ZAPDOS), [(0, 0), (3, 0), (8, 8), (0, 0), (2, 0)])

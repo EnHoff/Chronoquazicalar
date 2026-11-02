@@ -24,7 +24,7 @@ ITEM = _ns(
     "leftovers blacksludge lifeorb choiceband choicespecs choicescarf boosterenergy heavydutyboots "
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
-    "punchingglove eviolite",
+    "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice",
 )
 ABILITY = _ns(
     T.ability_ids,
@@ -34,7 +34,8 @@ ABILITY = _ns(
     "sheerforce punkrock hugepower purepower torrent blaze overgrow swarm transistor dragonsmaw steelworker "
     "rockypayload waterbubble solarpower adaptability tintedlens sniper liquidvoice multiscale shadowshield filter "
     "solidrock prismarmor fluffy icescales thickfat heatproof purifyingsalt furcoat vesselofruin tabletsofruin "
-    "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator",
+    "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator compoundeyes hustle "
+    "victorystar noguard keeneye mindseye superluck skilllink",
 )
 MOVE = _ns(
     T.move_ids,

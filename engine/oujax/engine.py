@@ -29,6 +29,7 @@ from engine.oujax.damage import (
     FieldInfo,
     blocked_by_psychic_terrain,
     boosted_stat,
+    chain,
     chain_if,
     damage_finish,
     damage_parts,
@@ -86,12 +87,15 @@ SAND_IMMUNE_ABILITIES = jnp.array(
     [T.ability_ids[a] for a in ("sandrush", "sandforce", "sandveil", "overcoat", "magicguard")]
 )
 CRIT_DEN = jnp.array([0, 24, 8, 2, 1], jnp.int32)
-MULTIHIT_2_5 = jnp.array([2, 2, 2, 3, 3, 3, 4, 5], jnp.int32)
+MULTIHIT_2_5 = jnp.array([2] * 7 + [3] * 7 + [4] * 3 + [5] * 3, jnp.int32)  # Gen 5+: 35/35/15/15
 ACC_NUM = jnp.array([3, 4, 5, 6, 7, 8, 9], jnp.int32)  # accuracy stages x3: [1, 4/3, 5/3, 2, 7/3, 8/3, 3]
 SPIKES_24THS = jnp.array([0, 3, 4, 6], jnp.int32)
-MAX_HITS = 5
+MAX_HITS = 10  # Population Bomb
 FOE_TARGETS = jnp.array(
-    [TARGET_ID[t] for t in ("normal", "any", "allAdjacentFoes", "allAdjacent", "randomNormal", "adjacentFoe")]
+    [
+        TARGET_ID[t]
+        for t in ("normal", "any", "allAdjacentFoes", "allAdjacent", "randomNormal", "adjacentFoe", "scripted")
+    ]
 )
 WEATHER_ROCK = {SUN: ITEM.heatrock, RAIN: ITEM.damprock, SAND: ITEM.smoothrock, SNOW: ITEM.icyrock}
 WEATHER_ABILITY = jnp.zeros(len(T.ability_ids), jnp.int32)
@@ -157,7 +161,21 @@ class MoveCtx(NamedTuple):
     targets_foe: jnp.ndarray
     foe_pending_move: jnp.ndarray  # move id the target will still use this turn after this one, 0 if none
     moves: jnp.ndarray = jnp.bool_(False)  # the user gets to move (past sleep, paralysis, flinch, ...)
+    proceeds: jnp.ndarray = jnp.bool_(False)  # ... and the move didn't fail before its accuracy check
     landed: jnp.ndarray = jnp.bool_(False)  # the move connected with its target (or succeeded, if self-targeted)
+    acc: jnp.ndarray = jnp.int32(101)  # final accuracy (after modifiers and stages), 101 = always hits
+    acc_base: jnp.ndarray = jnp.int32(101)  # accuracy before ModifyAccuracy and stages
+    acc_chain: jnp.ndarray = jnp.int32(4096)  # ModifyAccuracy modifier
+    acc_stage: jnp.ndarray = jnp.int32(0)  # accuracy minus evasion stage, clipped
+
+
+# Core per-turn bookkeeping used by several families (claimed here, before any family module)
+hooks.VOL.add("moved")  # acted this turn
+hooks.VOL.add("dmg_phys")  # damage taken this turn from the foe's physical moves (last hit)
+hooks.VOL.add("dmg_spec")  # ... special moves
+hooks.VOL.add("dmg_last")  # 1 + damage of the last damaging hit this turn (0 on a Substitute), 0 if none
+hooks.VOL.add("move_result")  # this turn's move: 0 none or not counted (Protect), 1 worked, 2 failed
+hooks.VOL.add("last_failed")  # the previous turn's move failed (Stomping Tantrum, Temper Flare)
 
 
 # --- small helpers ---------------------------------------------------------------------------------
@@ -715,6 +733,13 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Protect blocks moves with the protect flag aimed at the target
     blocked_by_protect = targets_foe & st.protected[o] & ((flags & FLAG_BIT["protect"]) > 0)
     proceeds_hit = proceeds & ~blocked_by_protect
+    # TryHit (Showdown's hitStepTryHitEvent): absorbing abilities, ... run before type immunity and accuracy;
+    # ctx.landed here means "reaches the target"
+    for h in hooks.handlers("try_hit"):
+        st, b = h(st, ctx._replace(landed=proceeds_hit, proceeds=proceeds))
+        proceeds_hit &= ~b
+    # Stopped by Protect or a TryHit block: Showdown counts that as neither success nor failure
+    not_fail = proceeds & targets_foe & ~proceeds_hit
 
     # Accuracy
     acc = _i(row[MC["accuracy"]])
@@ -726,17 +751,50 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     acc = jnp.where((mid == SPECIAL["thunder"]) & (st.weather == SUN), 50, acc)
     acc = jnp.where((mid == SPECIAL["toxic"]) & has_type(types_now(st, s, slot), TY["poison"]), 101, acc)
     acc = jnp.where(struggle, 101, acc)
+    acc = jnp.where(
+        ((mid == MID["bleakwindstorm"]) | (mid == MID["wildboltstorm"]) | (mid == MID["sandsearstorm"]))
+        & (st.weather == RAIN),
+        101,
+        acc,
+    )
+    for h in hooks.handlers("accuracy"):
+        acc = h(st, ctx, acc)
+    acc_base = acc
+    # ModifyAccuracy (before stages): Wide Lens, Zoom Lens, Compound Eyes, Hustle, Victory Star
+    a_mod = jnp.int32(4096)
+    user_item, user_ab = st.item[s, slot], st.ability[s, slot]
+    a_mod = chain_if(a_mod, user_item == ITEM.widelens, 4505)
+    a_mod = chain_if(a_mod, (user_item == ITEM.zoomlens) & (vol(st, o, "moved") > 0), 4915)
+    a_mod = chain_if(a_mod, user_ab == ABILITY.compoundeyes, 5325)
+    a_mod = chain_if(a_mod, (user_ab == ABILITY.hustle) & (category == 0), 3277)
+    a_mod = chain_if(a_mod, user_ab == ABILITY.victorystar, 4506)
+    acc = jnp.where(acc < 101, modify(acc, a_mod), acc)
     # Unaware ignores the other side's accuracy / evasion stages (a Mold Breaker attacker ignores the target's)
     target_unaware = (st.ability[o, tslot] == ABILITY.unaware) & ~(
         ignores_abilities_ab(st.ability[s, slot]) & BREAKABLE_J[ABILITY.unaware]
     )
     acc_stage = jnp.where(target_unaware, 0, _i(st.boosts[s, 5]))
-    eva_stage = jnp.where(st.ability[s, slot] == ABILITY.unaware, 0, _i(st.boosts[o, 6]))
+    keen = (
+        (st.ability[s, slot] == ABILITY.unaware)
+        | (st.ability[s, slot] == ABILITY.keeneye)
+        | (st.ability[s, slot] == ABILITY.mindseye)
+    )
+    eva_stage = jnp.where(keen, 0, _i(st.boosts[o, 6]))
     stage = jnp.clip(acc_stage - eva_stage, -6, 6)
     acc_mod = jnp.where(stage >= 0, acc * ACC_NUM[jnp.abs(stage)] // 3, acc * 3 // ACC_NUM[jnp.abs(stage)])
-    needs_roll = targets_foe & (acc < 101)
+    # No Guard (either side) makes every move hit
+    no_guard = (st.ability[s, slot] == ABILITY.noguard) | (st.ability[o, tslot] == ABILITY.noguard)
+    acc_mod = jnp.where(no_guard, 101, acc_mod)
+    needs_roll = targets_foe & (acc < 101) & ~no_guard
     hits = ~needs_roll | chance(keys[3], acc_mod, 100, cfg.hit, cfg)
     landed = proceeds_hit & hits
+    ctx = ctx._replace(
+        proceeds=proceeds,
+        acc=jnp.where(needs_roll, acc_mod, 101),
+        acc_base=jnp.where(needs_roll, acc_base, 101),
+        acc_chain=a_mod,
+        acc_stage=stage,
+    )
 
     # Type immunity (damaging moves, and status moves that respect it like Thunder Wave)
     t_types = types_now(st, o, tslot)
@@ -748,10 +806,9 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
-    for h in hooks.handlers("try_hit"):
-        st, b = h(st, ctx._replace(landed=landed))
-        landed &= ~b
     ctx = ctx._replace(landed=landed)
+    for h in hooks.handlers("move_try_hit"):
+        st = h(st, ctx)
 
     st, dealt, hit_sub = damage_phase(st, s, mid, landed & ~is_status, keys[4:10], cfg, ctx)
     # A Stellar Tera user spends the boost for this move's type once the move has dealt its damage
@@ -772,6 +829,10 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Pivot: damaging pivots switch if they connected; status pivots per status_phase
     self_switch = row[MC["self_switch"]] > 0
     pivot = self_switch & jnp.where(is_status, pivot_ok, landed) & (st.hp[s, slot] > 0) & bench_available(st, s)
+    st = set_vol(st, s, "moved", 1, enabled)
+    # Not getting to move (sleep, full paralysis, flinch) counts as a failure for Stomping Tantrum
+    result = jnp.where(landed | (proceeds & is_status & ~targets_foe), 1, jnp.where(not_fail, 0, 2))
+    st = set_vol(st, s, "move_result", result, user_alive)
     for h in hooks.handlers("after_move"):
         st = h(st, ctx)
     return st, pivot
@@ -797,12 +858,38 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     tslot = act(st, o)
     row = MOVES[mid]
     mh_min, mh_max = row[MC["multihit_min"]], row[MC["multihit_max"]]
+    user_item, user_ab = st.item[s, act(st, s)], st.ability[s, act(st, s)]
+    dice = user_item == ITEM.loadeddice
     if cfg.forced:
-        n_hits = jnp.where(mh_max == 0, 1, jnp.where(mh_min == mh_max, mh_min, 2))
+        n_2_5, dice_2_5, dice_10 = jnp.int32(2), jnp.int32(5), jnp.int32(10)  # sample() first; random() minimum
     else:
-        sampled = MULTIHIT_2_5[jax.random.randint(keys[0], (), 0, 8)]
-        n_hits = jnp.where(mh_max == 0, 1, jnp.where(mh_min == mh_max, mh_min, sampled))
-    crit_stage = jnp.clip(row[MC["crit_ratio"]], 0, 4)
+        n_2_5 = MULTIHIT_2_5[jax.random.randint(keys[0], (), 0, MULTIHIT_2_5.shape[0])]
+        # Loaded Dice re-rolls 2 or 3 hits as 4 or 5
+        dice_2_5 = jnp.where(n_2_5 < 4, 5 - jax.random.randint(jax.random.fold_in(keys[0], 1), (), 0, 2), n_2_5)
+        dice_10 = 10 - jax.random.randint(jax.random.fold_in(keys[0], 2), (), 0, 7)
+    variable = mh_min != mh_max
+    n_hits = jnp.where(
+        variable, jnp.where(user_ab == ABILITY.skilllink, mh_max, jnp.where(dice, dice_2_5, n_2_5)), mh_min
+    )
+    n_hits = jnp.where((mh_max == 10) & dice, dice_10, n_hits)
+    n_hits = jnp.where(mh_max == 0, 1, n_hits)
+    # Every hit after the first re-checks accuracy for Triple Axel-style moves (not with Skill Link / Loaded Dice)
+    multiacc = (row[MC["multiaccuracy"]] == 1) & (user_ab != ABILITY.skilllink) & ~dice
+    if ctx is not None:
+        # Later hits apply the stages first, untruncated, then ModifyAccuracy, and roll against the fraction
+        # (randomChance(x, 100) hits for the first ceil(x) of 100 draws)
+        stg = ctx.acc_stage
+        num = jnp.where(stg >= 0, ACC_NUM[jnp.abs(stg)], 3)
+        den = jnp.where(stg >= 0, 3, ACC_NUM[jnp.abs(stg)])
+        staged_ceil = (ctx.acc_base * num + den - 1) // den
+        modified = ((ctx.acc_base * num * ctx.acc_chain) // den + 2047) // 4096
+        later_acc = jnp.where(ctx.acc_chain == 4096, staged_ceil, modified)
+    crit_stage = row[MC["crit_ratio"]] + (user_item == ITEM.scopelens) + (user_item == ITEM.razorclaw)
+    crit_stage = crit_stage + (user_ab == ABILITY.superluck)
+    if ctx is not None:
+        for h in hooks.handlers("crit_stage"):
+            crit_stage = h(st, ctx, crit_stage)
+    crit_stage = jnp.clip(crit_stage, 0, 4)
     bypass_sub = ((row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0) | (
         st.ability[s, act(st, s)] == ABILITY.infiltrator
     )
@@ -821,9 +908,18 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
 
     def hit(h, carry):
         # One hit, traced once and run MAX_HITS times by fori_loop (keeps the compiled step small)
-        st, total = carry
+        st, total, missed = carry
         kc, kr = jax.random.split(jax.random.fold_in(keys[1], h))
-        go = active & (h < n_hits) & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
+        if ctx is None:
+            acc_ok = jnp.bool_(True)
+        else:
+            acc_ok = (h == 0) | ~multiacc | (ctx.acc >= 101)
+            if cfg.forced:
+                acc_ok = acc_ok | jnp.bool_(cfg.hit)
+            else:
+                acc_ok = acc_ok | (jax.random.randint(jax.random.fold_in(keys[2], h), (), 0, 100) < later_acc)
+        missed = missed | ~acc_ok
+        go = active & (h < n_hits) & ~missed & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
         if cfg.forced:
             crit = jnp.bool_(cfg.crit)
             roll = jnp.int32(cfg.roll)
@@ -835,7 +931,25 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         sub_now = go & (st.sub_hp[o] > 0) & ~bypass_sub
         parts = jax.tree.map(lambda c, n: jnp.where(crit, c, n), parts_crit, parts_plain)
         parts = parts._replace(berry=parts.berry & (st.item[o, tslot] == def_c.item))  # eaten by an earlier hit
-        d, berry = damage_finish(parts, crit, roll, _i(st.hp[o, tslot]), maxhp_o, sub_now, with_berry=True)
+        bp_mult, bp_chain = jnp.int32(1), jnp.int32(4096)
+        if ctx is not None:
+            for hk in hooks.handlers("hit_power"):
+                m2, c2 = hk(st, ctx, h)
+                bp_mult, bp_chain = bp_mult * m2, chain(bp_chain, c2)
+        d, berry = damage_finish(
+            parts,
+            crit,
+            roll,
+            _i(st.hp[o, tslot]),
+            maxhp_o,
+            sub_now,
+            with_berry=True,
+            bp_mult=bp_mult,
+            bp_chain=bp_chain,
+        )
+        if ctx is not None:
+            for hk in hooks.handlers("damage_override"):
+                d = hk(st, ctx, d)
         # Seismic Toss / Night Shade: damage equals the user's level (type immunity already checked)
         d = jnp.where(row[MC["fixed_damage"]] == -1, _i(st.level[s, act(st, s)]), d)
         if ctx is not None:
@@ -858,9 +972,14 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         # Berries activate between hits of a multi-hit move; after the last hit they wait for the move's
         # after-hit effects (so Knock Off can remove a Sitrus Berry before it is eaten)
         st = _eat_if(st, o, go & (h + 1 < n_hits))
-        return st, total + jnp.where(go, jnp.where(sub_now, to_sub, to_mon), 0)
+        # Damage taken from the foe this turn, by category (Counter, Mirror Coat, Avalanche, ...)
+        taken = go & ~sub_now & (to_mon > 0)
+        st = set_vol(st, o, "dmg_phys", to_mon, taken & (row[MC["category"]] == 0))
+        st = set_vol(st, o, "dmg_spec", to_mon, taken & (row[MC["category"]] == 1))
+        st = set_vol(st, o, "dmg_last", jnp.where(sub_now, 0, to_mon) + 1, go)
+        return st, total + jnp.where(go, jnp.where(sub_now, to_sub, to_mon), 0), missed
 
-    st, total = jax.lax.fori_loop(0, MAX_HITS, hit, (st, jnp.int32(0)))
+    st, total, _ = jax.lax.fori_loop(0, MAX_HITS, hit, (st, jnp.int32(0), jnp.bool_(False)))
     return st, total, had_sub
 
 

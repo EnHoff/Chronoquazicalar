@@ -3,3 +3,5 @@ OU-JAX mechanic families. Each module registers hooks (engine/oujax/hooks.py) fo
 abilities and has its own test file (engine/oujax/families/test_<name>.py). Add a family by creating its
 module and importing it here.
 """
+
+from engine.oujax.families import damage_moves  # noqa: F401

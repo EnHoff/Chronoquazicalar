@@ -185,7 +185,13 @@ class Parts(NamedTuple):
     the per-hit part needs. Computed once per move for crit and non-crit; each hit then only runs
     damage_finish (crit multiplier, roll, STAB, effectiveness, burn, final modifiers)."""
 
-    base: jnp.ndarray  # after +2 and weather
+    raw_bp: jnp.ndarray  # base power after basePowerCallback hooks (first hit)
+    bp_mod: jnp.ndarray  # BasePower event chain (4096-based)
+    tera_floor_ok: jnp.ndarray  # Tera's 60 BP floor applies (if the base power ends up below 60)
+    level_factor: jnp.ndarray  # floor(2 * level / 5 + 2)
+    attack: jnp.ndarray
+    defense: jnp.ndarray
+    w_mod: jnp.ndarray  # weather modifier (4096-based)
     stab: jnp.ndarray  # 4096-based
     type_mod: jnp.ndarray
     burned: jnp.ndarray
@@ -297,17 +303,15 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     m = chain_if(
         m, ((move_id == MOVE.collisioncourse) | (move_id == MOVE.electrodrift)) & (type_mod > 0), M_SUPER_EFFECTIVE_4_3
     )
-    bp = jnp.maximum(modify(bp, m), 1)
+    raw_bp, bp_mod = bp, m  # the modified base power itself is computed per hit (damage_finish)
     stellar = att.terastallized & (att.tera_type == TYPE_STELLAR)
     stellar_fresh = stellar & ((jnp.asarray(att.stellar_used, jnp.int32) & (1 << mtype)) == 0)
-    tera_floor = (
+    tera_floor_ok = (
         att.terastallized
         & jnp.where(stellar, stellar_fresh, has_type(att_types, mtype))
-        & (bp < 60)
         & (row[MC["priority"]] <= 0)
         & (row[MC["multihit_max"]] == 0)
     )
-    bp = jnp.where(tera_floor, 60, bp)
 
     # --- attack and defense ----------------------------------------------------------------------
     off_stat = jnp.where(row[MC["off_stat"]] > 0, row[MC["off_stat"]], jnp.where(physical, 1, 3))
@@ -359,6 +363,8 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
         a, physical & (dfn.ability == ABILITY.tabletsofruin) & (att.ability != ABILITY.tabletsofruin), M_0_75
     )  # 0
     a = chain_if(a, ~physical & (dfn.ability == ABILITY.vesselofruin) & (att.ability != ABILITY.vesselofruin), M_0_75)
+    # Hustle modifies the value directly (this.modify, not chainModify) at its priority, before the chain applies
+    attack = jnp.where(physical & (att.ability == ABILITY.hustle), modify(attack, M_1_5), attack)
     attack = modify(attack, a)
 
     # ModifyDef / ModifySpD run on the defender for the stat actually used
@@ -385,17 +391,12 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     )
     defense = jnp.maximum(modify(defense, d), 1)
 
-    base = (((2 * att.level // 5 + 2) * bp * attack) // defense) // 50
-
-    # --- modifyDamage ----------------------------------------------------------------------------
-    base = base + 2
+    # --- modifyDamage (weather) -------------------------------------------------------------------
     w_mod = jnp.int32(4096)
     sun, rain = field.weather == WEATHER_SUN, field.weather == WEATHER_RAIN
     hydro_steam = move_id == MOVE.hydrosteam  # boosted rather than weakened by sun
     w_mod = chain_if(w_mod, (sun & ((mtype == TY["fire"]) | hydro_steam)) | (rain & (mtype == TY["water"])), M_1_5)
     w_mod = chain_if(w_mod, (sun & (mtype == TY["water"]) & ~hydro_steam) | (rain & (mtype == TY["fire"])), M_0_5)
-    base = modify(base, w_mod)
-
     orig_types = att.base_types
     stab_any = (mtype != TYPE_NONE) & (has_type(att_types, mtype) | has_type(orig_types, mtype))
     tera_match = att.terastallized & (att.tera_type == mtype) & has_type(orig_types, mtype)
@@ -410,7 +411,13 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     fluffy_x = jnp.where(mtype == TY["fire"], 2.0, 1.0) * jnp.where(contact, 0.5, 1.0)
     berry_type = RESIST_BERRY_J[dfn.item]
     return Parts(
-        base=base,
+        raw_bp=raw_bp,
+        bp_mod=bp_mod,
+        tera_floor_ok=tera_floor_ok,
+        level_factor=2 * att.level // 5 + 2,
+        attack=attack,
+        defense=defense,
+        w_mod=w_mod,
         stab=stab,
         type_mod=type_mod,
         burned=burned,
@@ -433,9 +440,15 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     )
 
 
-def damage_finish(p: Parts, crit, roll, def_hp, def_maxhp, hits_sub=False, with_berry=False):
-    """Per-hit part: crit multiplier, roll, STAB, effectiveness, burn and the final modifier chain."""
-    base = jnp.where(crit, p.base * 3 // 2, p.base)
+def damage_finish(p: Parts, crit, roll, def_hp, def_maxhp, hits_sub=False, with_berry=False, bp_mult=1, bp_chain=4096):
+    """Per-hit part: modified base power, base damage, weather, crit multiplier, roll, STAB, effectiveness,
+    burn and the final modifier chain. bp_mult scales the raw base power (Triple Axel's 20/40/60, Payback's
+    doubling, ...); bp_chain is an extra BasePower modifier from the move's own hook (Fickle Beam, ...)."""
+    bp = jnp.maximum(modify(p.raw_bp * bp_mult, chain(p.bp_mod, bp_chain)), 1)
+    bp = jnp.where(p.tera_floor_ok & (bp < 60), 60, bp)
+    base = ((p.level_factor * bp * p.attack) // p.defense) // 50 + 2
+    base = modify(base, p.w_mod)
+    base = jnp.where(crit, base * 3 // 2, base)
     base = base * (100 - roll) // 100
     base = modify(base, p.stab)
     base = jnp.where(p.type_mod > 0, base << jnp.maximum(p.type_mod, 0), base)

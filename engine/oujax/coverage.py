@@ -34,6 +34,12 @@ HANDWRITTEN_MOVES = {
     # M3 batch 1: base-power callbacks, type changes, effectiveness changes
     "lowkick", "grassknot", "heavyslam", "heatcrash", "eruption", "waterspout", "dragonenergy", "storedpower",
     "powertrip", "ruination", "superfang", "freezedry", "collisioncourse", "electrodrift", "ivycudgel", "poltergeist",
+    # M3 damage_moves family
+    "tripleaxel", "triplekick", "populationbomb", "dragondarts", "payback", "avalanche", "stompingtantrum",
+    "temperflare", "ficklebeam", "counter", "mirrorcoat", "metalburst", "comeuppance", "endeavor", "brickbreak",
+    "psychicfangs", "clearsmog", "highjumpkick", "supercellslam", "axekick", "steelbeam", "grassyglide", "growth",
+    "bellydrum", "clangoroussoul", "takeheart", "tidyup", "healbell", "strengthsap", "bleakwindstorm",
+    "wildboltstorm", "sandsearstorm",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
@@ -136,6 +142,49 @@ def coverage_report(pool_path: Path = POOL) -> Dict:
     }
 
 
+def missing_elements(s: Dict) -> List[tuple]:
+    """The (kind, id) elements of a pool set the engine doesn't implement."""
+    out = []
+    if s["item"] not in SUPPORTED_ITEMS:
+        out.append(("item", s["item"]))
+    if s["ability"] not in SUPPORTED_ABILITIES:
+        out.append(("ability", s["ability"]))
+    out += [("move", m) for m in s["moves"] if not supported_move(m)]
+    return out
+
+
+def worklist(pool_path: Path = POOL) -> List[tuple]:
+    """Unsupported elements ranked by usage-weighted share of teams that need them, with the strict
+    usage-weighted team coverage reached once every element up to and including it is implemented:
+    [(kind, id, team_share, cumulative_coverage), ...]."""
+    from collections import defaultdict
+
+    need = defaultdict(float)
+    teams = []
+    w_all = w_cov = 0.0
+    with open(pool_path) as f:
+        for line in f:
+            t = json.loads(line)
+            miss = {e for s in t["sets"] for e in missing_elements(s)}
+            w_all += t["weight"]
+            if not miss:
+                w_cov += t["weight"]
+                continue
+            teams.append((t["weight"], miss))
+            for e in miss:
+                need[e] += t["weight"]
+    order = sorted(need, key=lambda e: -need[e])
+    rank = {e: i for i, e in enumerate(order)}
+    done_at = [0.0] * len(order)
+    for w, miss in teams:
+        done_at[max(rank[e] for e in miss)] += w
+    out, cum = [], w_cov
+    for i, e in enumerate(order):
+        cum += done_at[i]
+        out.append((e[0], e[1], need[e] / w_all, cum / w_all))
+    return out
+
+
 def build_covered_teams(n: int, seed: int = 0, pool_path: Path = POOL, validate: bool = True) -> List[str]:
     """n teams of 6 distinct species built from covered pool sets, as Showdown export text. Teams that fail
     Showdown's gen9ou validator are discarded and redrawn."""
@@ -172,6 +221,16 @@ def build_covered_teams(n: int, seed: int = 0, pool_path: Path = POOL, validate:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--worklist", action="store_true", help="every missing element, in usage order, with the "
+                    "strict team coverage reached after implementing it and everything above it")  # fmt: skip
+    args = ap.parse_args(argv)
+    if args.worklist:
+        for i, (kind, name, share, cum) in enumerate(worklist(), 1):
+            print(f"{i:4d}  {kind:8s} {name:24s} teams {share:6.1%}  cumulative {cum:6.1%}")
+        return 0
     rep = coverage_report()
     print(json.dumps({k: v for k, v in rep.items() if k != "top_missing"}, indent=1))
     for (kind, name), count in rep["top_missing"]:

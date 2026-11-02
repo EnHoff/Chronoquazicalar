@@ -10,7 +10,11 @@ take/return the state. Within an event, hooks run in descending priority, then r
 Events (arguments after the state; return value):
   before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent
   move_fails(st, ctx)                   -> fails           the move fails after PP is spent (Sucker Punch, ...)
-  try_hit(st, ctx)                      -> (st, blocked)   target-side blocks after accuracy (absorbing abilities)
+  try_hit(st, ctx)                      -> (st, blocked)   Showdown's TryHit step: after Protect, before type
+                                                           immunity and accuracy (absorbing abilities);
+                                                           ctx.landed = the move reaches the target
+  move_try_hit(st, ctx)                 -> st              the move's own onTryHit: after accuracy and immunity,
+                                                           before a Substitute or damage (Brick Break)
   damage_taken(st, ctx, side, dmg)      -> (st, dmg)       adjust a hit's damage to the target (Focus Sash, ...)
   after_hit(st, ctx, dealt, hit_sub)    -> st              after a damaging move's built-in after-hit effects
   status_move(st, ctx)                  -> st              extra effects of a landed status move
@@ -23,7 +27,12 @@ Events (arguments after the state; return value):
   priority(st, side, mid, prio)         -> prio
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
-  boost_change(st, side, deltas, ctx)   -> deltas          stat-stage changes before they apply
+  boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
+  hit_power(st, ctx, hit)               -> (mult, chain)   per-hit base power: raw multiplier and an extra
+                                                           4096-based BasePower modifier (Triple Axel, Payback)
+  damage_override(st, ctx, dmg)         -> dmg             replace a hit's damage (Counter, Endeavor, ...)
+  crit_stage(st, ctx, stage)            -> stage           critical-hit stage (Focus Energy, ...)
+  accuracy(st, ctx, acc)                -> acc             accuracy before stages; 101 means "always hits"
 
 ctx is a MoveCtx (see engine.py): user side s, target side o, their team slots, move id, move slot, keys, cfg,
 and flags about the move (category, landed, ...).
@@ -39,6 +48,7 @@ from typing import Callable, Dict, List, Tuple
 EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
+    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
