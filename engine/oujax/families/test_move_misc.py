@@ -24,6 +24,10 @@ PRIMARINA = mon("Primarina", "Leftovers", "Torrent", ["Sparkling Aria", "Will-O-
                 evs=WALL, nature="Bold", tera="Water")  # fmt: skip
 KLEAVOR = mon("Kleavor", "Leftovers", "Sheer Force", ["Stone Axe", "X-Scissor", "Protect", "Swords Dance"], evs=WALL,
               nature="Impish", tera="Rock")  # fmt: skip
+TINKATON = mon("Tinkaton", "Leftovers", "Mold Breaker", ["Gigaton Hammer", "Play Rough", "Stealth Rock", "Knock Off"],
+               evs=WALL, nature="Impish", tera="Water")  # fmt: skip
+URSALUNA = mon("Ursaluna-Bloodmoon", "Leftovers", "Mind's Eye", ["Blood Moon", "Earth Power", "Vacuum Wave",
+               "Calm Mind"], evs="252 HP / 252 SpA / 4 SpD", nature="Modest", tera="Normal")  # fmt: skip
 
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
@@ -48,6 +52,12 @@ class TestMoveMiscMore(MirrorScenarios, unittest.TestCase):
     def test_stone_axe_with_sheer_force(self):
         # Sheer Force boosts Stone Axe (an empty secondary) and drops its Stealth Rock
         self.play(team(KLEAVOR, CORV), team(PEX, CORV), [(0, 0), (0, 1), (0, 1)])
+
+    def test_cant_use_twice_moves(self):
+        # Gigaton Hammer and Blood Moon can't be selected right after a use; any other move, or a switch out
+        # (which clears lastMove), makes them selectable again (regression from L3a pool battle 32)
+        self.play(team(TINKATON, CORV), team(PEX, CORV), [(0, 0), (0, 1), (1, 1), (0, 1), (8, 1), (8, 1), (0, 1)])
+        self.play(team(URSALUNA, CORV), team(PEX, CORV), [(0, 0), (0, 1), (3, 1), (0, 1)])
 
 
 if __name__ == "__main__":
