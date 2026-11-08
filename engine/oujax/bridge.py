@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from engine.oujax import hooks
 from engine.oujax.engine import A_SWITCH, A_TERA, Config, choice_locked, legal_actions, step, switch_target
 from engine.oujax.ref import RefHarness
 from engine.oujax.state import (
@@ -137,6 +138,8 @@ class Mirror:
                     check(f"{tag}.substitute", bool(st.sub_hp[s] > 0), "substitute" in vol)
                     check(f"{tag}.choicelock", bool(choice_locked(st, s)), "choicelock" in vol)
                     check(f"{tag}.paradox", bool(st.paradox_stat[s] > 0), bool({"protosynthesis", "quarkdrive"} & vol))
+                    for name, fn in hooks.SHOWDOWN_VOLATILES.items():
+                        check(f"{tag}.{name}", bool(fn(st, s)), name in vol)
             if sd["ended"]:
                 continue  # Showdown stops mid-turn when the battle is decided; leftover counters don't matter
             conds = side["sideConditions"]
@@ -188,6 +191,11 @@ class Mirror:
             if kind == "move":
                 active = req["active"][0]
                 sd_moves = [not m.get("disabled") and m.get("pp", 1) > 0 for m in active["moves"]]
+                # A hidden disable (Imprison) shows as enabled in the request, but Showdown rejects the choice;
+                # the move slot itself says it's disabled
+                slots = sd["sides"][s]["pokemon"][sd["sides"][s]["active"][0]]["moves"]
+                if len(slots) == len(sd_moves):
+                    sd_moves = [ok and not slot["disabled"] for ok, slot in zip(sd_moves, slots)]
                 if len(active["moves"]) == 1 and active["moves"][0]["id"] == "struggle":
                     sd_moves = [True]
                 ours_moves = [bool(x) for x in legal[s, : len(sd_moves)]]

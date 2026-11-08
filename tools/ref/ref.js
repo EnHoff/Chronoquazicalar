@@ -100,7 +100,8 @@ function installForced(battle, opts) {
 	battle.random = (m, n) => {
 		const t = top();
 		if (t === 'roll') return o.roll;
-		if (t === 'secondary') return o.secondaries ? 0 : 99;
+		// random(100) is the chance roll; durations set by a secondary (confusion) use random(m, n)
+		if (t === 'secondary' && n === undefined) return o.secondaries ? 0 : 99;
 		if (n === undefined) return m === undefined ? 0 : (o.randomMin ? 0 : m - 1);
 		return o.randomMin ? m : n - 1;
 	};

@@ -168,9 +168,13 @@ def _move_row(m: dict, type_ids: Dict[str, int], vol_ids: Dict[str, int]) -> Lis
         "ignore_defensive": int(bool(m.get("ignoreDefensive"))),
         "multiaccuracy": int(bool(m.get("multiaccuracy"))),
         "type_immunity": int(m.get("ignoreImmunity") is False or (m["category"] != "Status" and not m.get("ignoreImmunity"))),
-        "has_handlers": int(bool(m.get("handlers") or m.get("conditionHandlers"))),
+        "has_handlers": int(bool(m.get("handlers") or m.get("conditionHandlers") or m.get("effectHandlers"))),
     }  # fmt: skip
-    for b, v in zip(BOOSTS, _boosts(m.get("boosts"))):
+    # Parting Shot's -1 Atk / -1 SpA live in onHit (not `boosts`) so the self-switch is cancelled if they miss
+    boosts = m.get("boosts")
+    if to_id(m.get("name")) == "partingshot" and not boosts:
+        boosts = {"atk": -1, "spa": -1}
+    for b, v in zip(BOOSTS, _boosts(boosts)):
         row[f"boost_{b}"] = v
     for b, v in zip(BOOSTS, _boosts(self_boosts)):
         row[f"self_boost_{b}"] = v

@@ -40,6 +40,28 @@ HANDWRITTEN_MOVES = {
     "psychicfangs", "clearsmog", "highjumpkick", "supercellslam", "axekick", "steelbeam", "grassyglide", "growth",
     "bellydrum", "clangoroussoul", "takeheart", "tidyup", "healbell", "strengthsap", "bleakwindstorm",
     "wildboltstorm", "sandsearstorm",
+    # M3 volatiles family
+    "hurricane", "strangesteam", "waterpulse", "psychicnoise", "saltcure", "swagger", "taunt", "encore", "throatchop", "curse", "leechseed", "destinybond",
+    # M3 move_misc family
+    "suckerpunch", "thunderclap", "upperhand", "fakeout", "firstimpression", "icespinner", "spikyshield",
+    "banefulbunker", "endure",
+    # M3 charge_moves family
+    "outrage", "meteorbeam", "solarbeam", "solarblade", "phantomforce", "hyperbeam",
+    # M3 call_moves family
+    "sleeptalk",
+    # M3 trapping family
+    "magmastorm", "whirlpool", "firespin", "infestation", "meanlook", "block", "jawlock", "noretreat",
+    # M3 power / type / category moves (damage.py, families/power_moves.py)
+    "electroball", "gyroball", "risingvoltage", "expandingforce", "psyblade", "barbbarrage", "infernalparade",
+    "revelationdance", "ragingbull", "photongeyser", "flyingpress", "watershuriken", "charge",
+    # M3 field_moves family
+    "smackdown", "magnetrise", "gravity", "perishsong",
+    # M3 status_moves family, move_misc / charge_moves / power_moves additions
+    "focusenergy", "imprison", "stockpile", "spite", "speedswap", "junglehealing", "lunarblessing",
+    "hyperspacefury", "doubleshock", "fellstinger", "stoneaxe", "sparklingaria", "burningbulwark", "beakblast",
+    "focuspunch", "skyattack", "rockwrecker", "beatup",
+    "reversal", "flail", "shellsidearm",
+    "sandtomb", "thundercage", "gigaimpact",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
@@ -53,7 +75,7 @@ SUPPORTED_SIDE_CONDITIONS = {
     "tailwind",
 }
 SUPPORTED_VOLATILES = {"", "protect", "substitute"}
-SUPPORTED_SECONDARY_VOLATILES = {"", "flinch"}
+SUPPORTED_SECONDARY_VOLATILES = {"", "flinch", "confusion", "healblock", "saltcure"}
 SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
