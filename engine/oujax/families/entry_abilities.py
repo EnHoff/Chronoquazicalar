@@ -45,6 +45,7 @@ from engine.oujax.engine import (
     foe,
     ignores_abilities_ab,
     mon_ex,
+    refresh_paradox,
     set_field_ex,
     set_mon_ex,
     set_terrain,
@@ -175,8 +176,9 @@ def ability_start(st, s, cond, entry=True, weather=False):
         st, traced = _trace(st, s, alive)
         weather_cond = weather_cond | traced
     ab = ability(st, s)
-    st, _ = set_weather(st, WEATHER_ABILITY[ab], s, slot, weather_cond)
-    st, _ = set_terrain(st, TERRAIN_ABILITY[ab], s, slot, weather_cond)
+    st, _ = set_weather(st, WEATHER_ABILITY[ab], s, slot, weather_cond, refresh=False)
+    st, _ = set_terrain(st, TERRAIN_ABILITY[ab], s, slot, weather_cond, refresh=False)
+    st = refresh_paradox(st)
     # Self boosts: Dauntless Shield (once per battle), Download, Wind Rider under its side's Tailwind
     oslot = jnp.maximum(act(st, o), 0)
     foe_on = on_field(st, o)
@@ -198,9 +200,8 @@ def ability_start(st, s, cond, entry=True, weather=False):
 
 
 def _restart_back(st, back):
-    for s in (0, 1):
-        st = ability_start(st, s, back[s], entry=False, weather=True)
-    return st
+    # In singles only the gas holder's foe gets an ability back, so one (traced-side) start covers both sides
+    return ability_start(st, jnp.argmax(back), jnp.any(back), entry=False, weather=True)
 
 
 # --- hooks -------------------------------------------------------------------------------------------

@@ -81,31 +81,44 @@ def _block_drops(st, s, deltas, from_foe):
     return jnp.where(jnp.asarray(from_foe) & mask & (deltas < 0), 0, deltas)
 
 
+def _react(st, s, old, new, src, cond):
+    """Defiant / Competitive (+2 per stat the foe lowered) and Rattled (+1 Spe after Intimidate) for side s.
+    The holder's own boost goes through no boost_change hook that could change it (it can't also have Contrary
+    or a drop blocker), so it is added directly."""
+    ab = ability(st, s)
+    lowered = jnp.sum((new < old).astype(jnp.int32))
+    defiant = jnp.where(ab == AB["defiant"], 2 * lowered, 0)
+    competitive = jnp.where(ab == AB["competitive"], 2 * lowered, 0)
+    rattled = (ab == AB["rattled"]) & (src == BOOST_INTIMIDATE) & (new[0] != old[0])
+    self_boost = jnp.stack([defiant, 0, competitive, 0, rattled.astype(jnp.int32), 0, 0])
+    go = cond & on_field(st, s)
+    cur = st.boosts[s].astype(jnp.int32)
+    out = jnp.where(go, jnp.clip(cur + self_boost, -6, 6), cur)
+    return st.replace(boosts=st.boosts.at[s].set(out.astype(st.boosts.dtype)))
+
+
 @hooks.hook("after_boost")
 def _after_boost(st, s, old, new, raw, from_foe, depth):
+    # Runs once per change from the foe, never nested (apply_boosts' depth): Mirror Armor's reflection and the
+    # reactions to it are written out here
     from_foe = jnp.asarray(from_foe)
-    ab = ability(st, s)
     src = field_ex(st, "boost_src")
     # Mirror Armor: the drops it blocked hit the foe instead (capped at -6)
     reflected = jnp.where((raw < 0) & (old > -6), jnp.maximum(raw, -6 - old), 0)
+    o = foe(s)
     mirror = (
         from_foe
         & (eff_ability(st, s) == AB["mirrorarmor"])
         & (src != BOOST_MIRROR)
         & jnp.any(reflected < 0)
-        & on_field(st, foe(s))
+        & on_field(st, o)
     )
     st = set_field_ex(st, "boost_src", BOOST_MIRROR, mirror)
-    st, _ = apply_boosts(st, foe(s), reflected, mirror, from_foe=True, depth=depth + 1)
+    old_o = st.boosts[o].astype(jnp.int32)
+    st, _ = apply_boosts(st, o, reflected, mirror, from_foe=True, depth=1)
+    st = _react(st, o, old_o, st.boosts[o].astype(jnp.int32), BOOST_MIRROR, mirror)
     st = set_field_ex(st, "boost_src", src, mirror)
-    # Defiant / Competitive: +2 for each stat the foe lowered; Rattled: +1 Spe after Intimidate
-    lowered = jnp.sum((new < old).astype(jnp.int32)) * from_foe
-    defiant = jnp.where(ab == AB["defiant"], 2 * lowered, 0)
-    competitive = jnp.where(ab == AB["competitive"], 2 * lowered, 0)
-    rattled = (ab == AB["rattled"]) & (src == BOOST_INTIMIDATE) & (new[0] != old[0])
-    self_boost = jnp.stack([defiant, 0, competitive, 0, rattled.astype(jnp.int32), 0, 0])
-    st, _ = apply_boosts(st, s, self_boost, jnp.any(self_boost != 0) & on_field(st, s), depth=depth + 1)
-    return st
+    return _react(st, s, old, new, src, from_foe)
 
 
 # --- KO boosts ---------------------------------------------------------------------------------------

@@ -359,7 +359,8 @@ def gain_hp(st: Battle, s, slot, amount, cond=True):
 def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False, depth=0):
     """Add stat stage changes to side s's active Pokemon. Returns (state, whether any stage changed).
     from_foe: the change comes from the opposing Pokemon (Intimidate, a foe's move), for boost_change hooks.
-    depth: nesting level when an after_boost hook boosts again (Defiant, Mirror Armor); hooks stop at 2."""
+    depth: 1 when an after_boost hook boosts again (Mirror Armor's reflection), which runs no after_boost hooks.
+    after_boost hooks only react to changes from the foe, so they aren't traced for from_foe=False calls."""
     raw = jnp.where(cond, jnp.asarray(deltas, jnp.int32), 0)
     deltas = raw
     for h in hooks.handlers("boost_change"):
@@ -367,7 +368,7 @@ def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False, depth=0):
     old = st.boosts[s].astype(jnp.int32)
     new = jnp.clip(old + jnp.where(cond, deltas, 0), -6, 6)
     st = st.replace(boosts=st.boosts.at[s].set(new.astype(st.boosts.dtype)))
-    if depth < 2:
+    if depth == 0 and from_foe is not False:
         for h in hooks.handlers("after_boost"):
             st = h(st, s, old, new, raw, from_foe, depth)
     return st, jnp.any(new != old)
@@ -502,8 +503,9 @@ def best_stat(st: Battle, s, slot):
     return jnp.argmax(vals) + 1
 
 
-def set_weather(st: Battle, weather, s, slot, cond):
-    """Field.setWeather from side s's Pokemon: fails if that weather is already up; 8 turns with its rock."""
+def set_weather(st: Battle, weather, s, slot, cond, refresh=True):
+    """Field.setWeather from side s's Pokemon: fails if that weather is already up; 8 turns with its rock.
+    refresh=False leaves refresh_paradox to the caller (which runs it right after)."""
     rock = jnp.select([weather == w for w in WEATHER_ROCK], [r for r in WEATHER_ROCK.values()], -1)
     turns = jnp.where(st.item[s, slot] == rock, 8, 5)
     ok = cond & (weather > 0) & (st.weather != weather)
@@ -511,17 +513,17 @@ def set_weather(st: Battle, weather, s, slot, cond):
         weather=jnp.where(ok, weather, st.weather).astype(jnp.int8),
         weather_turns=jnp.where(ok, turns, st.weather_turns).astype(jnp.int8),
     )
-    return refresh_paradox(st), ok
+    return (refresh_paradox(st) if refresh else st), ok
 
 
-def set_terrain(st: Battle, terrain, s, slot, cond):
+def set_terrain(st: Battle, terrain, s, slot, cond, refresh=True):
     turns = jnp.where(st.item[s, slot] == ITEM.terrainextender, 8, 5)
     ok = cond & (terrain > 0) & (st.terrain != terrain)
     st = st.replace(
         terrain=jnp.where(ok, terrain, st.terrain).astype(jnp.int8),
         terrain_turns=jnp.where(ok, turns, st.terrain_turns).astype(jnp.int8),
     )
-    return refresh_paradox(st), ok
+    return (refresh_paradox(st) if refresh else st), ok
 
 
 # --- switching -------------------------------------------------------------------------------------
@@ -616,8 +618,8 @@ def run_switch_in(st: Battle, s, key, cfg: Config, cond):
     st = eat_sitrus(st, s)
     # Ability: weather / terrain setters
     alive = cond & (st.hp[s, slot] > 0)
-    st, _ = set_weather(st, WEATHER_ABILITY[st.ability[s, slot]], s, slot, alive)
-    st, _ = set_terrain(st, TERRAIN_ABILITY[st.ability[s, slot]], s, slot, alive)
+    st, _ = set_weather(st, WEATHER_ABILITY[st.ability[s, slot]], s, slot, alive, refresh=False)
+    st, _ = set_terrain(st, TERRAIN_ABILITY[st.ability[s, slot]], s, slot, alive, refresh=False)
     # Protosynthesis / Quark Drive and Booster Energy
     st = refresh_paradox(st)
     for h in hooks.handlers("switch_in"):
@@ -1199,8 +1201,8 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     tail = landed & (sc == SIDE["tailwind"]) & (st.tailwind[s] == 0)
     st = st.replace(tailwind=st.tailwind.at[s].set(jnp.where(tail, 4, st.tailwind[s]).astype(jnp.int8)))
     # Weather, terrain, Trick Room
-    st, _ = set_weather(st, row[MC["weather"]], s, slot, landed)
-    st, _ = set_terrain(st, row[MC["terrain"]], s, slot, landed)
+    st, _ = set_weather(st, row[MC["weather"]], s, slot, landed, refresh=False)
+    st, _ = set_terrain(st, row[MC["terrain"]], s, slot, landed, refresh=False)
     tr = landed & (row[MC["pseudo_weather"]] == PSEUDO["trickroom"])
     st = st.replace(trick_room=jnp.where(tr, jnp.where(st.trick_room > 0, 0, 5), st.trick_room).astype(jnp.int8))
     # Haze: clear both sides' stat stages

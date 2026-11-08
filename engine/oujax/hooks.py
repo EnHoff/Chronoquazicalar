@@ -39,7 +39,8 @@ Events (arguments after the state; return value):
                                                            entry abilities (restore its ability, suppress it, ...)
   after_boost(st, side, old, new, raw, from_foe, depth) -> st  after stat stages changed (old/new (7,) stages, raw =
                                                            the requested deltas before boost_change hooks);
-                                                           apply_boosts runs these only while depth < 2
+                                                           only for changes from the foe, and not for a boost
+                                                           an after_boost hook makes (depth 1)
   reflect(st, ctx)                      -> (st, reflected, lands)  before TryHit: the target bounces the move back
                                                            (Magic Bounce); lands = the bounced move connects
   after_status(st, side, slot, status, from_foe, key, cfg, applied) -> st  after try_set_status (Synchronize)

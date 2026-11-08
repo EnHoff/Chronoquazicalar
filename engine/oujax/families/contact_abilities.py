@@ -6,7 +6,7 @@ Abilities that react to a hit or to the move around it:
   Disable the move for 3 more turns), Weak Armor, Justified, Rattled, Toxic Debris, Gulp Missile; the
   attacker's Poison Touch (30% poison on contact) and Toxic Chain (30% toxic), which Shield Dust blocks.
 - After the move: Pickpocket and Magician steal items, Berserk (+1 SpA when a hit drops it below half HP).
-- Synchronize passes burn / paralysis / poison back to the foe that caused it.
+- Synchronize passes burn / paralysis / poison back to the foe that caused it (at the end of the move).
 - Serene Grace doubles secondary-effect chances; Shield Dust blocks the foe's secondary effects on itself;
   Shell Armor / Battle Armor block critical hits (simplification: not a willCrit move's, like Wicked Blow).
 Random 30% rolls are forced to happen in forced mode (the harness answers them with `other: true`).
@@ -52,6 +52,7 @@ hooks.VOL.add("disabled")  # move slot + 1 of a Disabled move
 hooks.VOL.add("disable_turns")
 hooks.VOL.add("gulp")  # Gulp Missile form: 1 Gulping, 2 Gorging
 hooks.VOL.add("hp_after_hit")  # 1 + HP right after the latest damaging hit (Berserk)
+hooks.VOL.add("sync")  # status Synchronize still has to pass back to the foe
 
 
 def _contact(st, ctx):
@@ -174,10 +175,21 @@ def _after_hit(st, ctx, dealt, hit_sub):
 
 @hooks.hook("after_status")
 def _synchronize(st, s, slot, status, from_foe, key, cfg, applied):
+    # Synchronize: remember the status to pass back; it is applied once the move is over (_synchronize_back),
+    # so the step traces a single extra status attempt rather than one per status source
     sync = applied & from_foe & (st.ability[s, slot] == AB["synchronize"]) & (status != SLP) & (status != FRZ)
-    o = 1 - s
-    oslot = jnp.maximum(st.active[o], 0)
-    st, _ = try_set_status(st, o, oslot, status, jax.random.fold_in(key, 7), cfg, cond=sync, hook=False)
+    return set_vol(st, s, "sync", status, sync)
+
+
+@hooks.hook("after_move", priority=-50)
+def _synchronize_back(st, ctx):
+    for s in (0, 1):
+        o = 1 - s
+        status = vol(st, s, "sync")
+        oslot = jnp.maximum(st.active[o], 0)
+        key = jax.random.fold_in(ctx.key, 70 + s)
+        st, _ = try_set_status(st, o, oslot, status, key, ctx.cfg, cond=status > 0, hook=False)
+        st = set_vol(st, s, "sync", 0)
     return st
 
 
