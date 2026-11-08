@@ -1,9 +1,10 @@
 """
 engine/oujax/l3_check.py
-L3a runner: plays N forced-outcome battles on M2-covered teams in OU-JAX and Showdown with a random legal
-policy and reports the first divergence of each battle.
+L3a runner: plays N forced-outcome battles in OU-JAX and Showdown with a random legal policy and reports the
+first divergence of each battle. Teams are assembled from covered pool sets, or with --pool are real pool teams
+whose every set is covered (the M3 gate).
 
-    python -m engine.oujax.l3_check --battles 50 --team-seed 0
+    python -m engine.oujax.l3_check --battles 50 --team-seed 0 [--pool]
 """
 
 import argparse
@@ -11,7 +12,7 @@ import json
 import time
 
 from engine.oujax.bridge import play_mirrored
-from engine.oujax.coverage import build_covered_teams
+from engine.oujax.coverage import build_covered_teams, covered_pool_teams
 from engine.oujax.engine import Config
 from engine.oujax.ref import RefHarness
 
@@ -20,9 +21,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--battles", type=int, default=50)
     parser.add_argument("--team-seed", type=int, default=0)
+    parser.add_argument("--pool", action="store_true", help="real fully covered pool teams")
     parser.add_argument("--out", type=str, default=None)
     args = parser.parse_args(argv)
-    teams = build_covered_teams(2 * args.battles, seed=args.team_seed)
+    if args.pool:
+        teams = covered_pool_teams(2 * args.battles, seed=args.team_seed)
+    else:
+        teams = build_covered_teams(2 * args.battles, seed=args.team_seed)
     t0 = time.time()
     results = []
     with RefHarness() as ref:

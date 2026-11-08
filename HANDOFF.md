@@ -49,6 +49,15 @@ The original plan doc is https://claude.ai/artifact/QmiTc67H4GwBjzCG7BPDjc. The 
 - **L3b:** 72 statistical tests with 0 failures (lowest p 0.061, Bonferroni).
 - **Throughput:** about 1.0M steps/s at batch 1K, 3.4M at 4K, 9.5M at 16K and 10.9M at 64K. JIT takes about 50 s, and the run uses under 300 MB of GPU memory.
 
+### M3 state as of 2026-11-08 (checked against git)
+- **Correction to the 2026-11-02 note:** the sub-branch work wasn't lost. Uncommitted subagent WIP was still sitting in the worktrees, and it's now committed and pushed.
+- **Merged into m3-meta-coverage:** `m3-volatiles` (merge commit after 4c8925f), the volatiles, move_misc, charge, call_moves, trapping, power/type/category, field and status move families. That's 77 of the 78 moves assigned to the branch. Transform and the Metronome move were skipped as planned. Magic Room is still open. One fix came out of L3a: selfBoost (Scale Shot, Clanging Scales) fails once the user's foes have no Pokémon left, because Gen 6+ `battle.boost` returns false when `!foePokemonLeft()`.
+- **After the merge:** full suite 127 passed (9m14s on CPU) and ruff is clean. Coverage is 131,434 of 262,242 sets (50.1%), and strict team coverage is 900 of 43,707 teams (2.06% usage-weighted). Strict coverage stays low until the ability and item branches land.
+- **`m3-abilities`** (f464977, WIP): 114 passed and 14 failed (L2 ability scenarios plus L3 forced). It is next to be finished and merged.
+- **`m3-items-switch`** (98a7e44, WIP): 61 passed and 68 failed, which means the request-flow changes broke the core L2 and L3 tests.
+- **Integrator:** `l3_check --pool` runs L3a on real, fully covered pool teams, which is what the gate requires.
+- **Worklist split** (the first 230 usage-ordered elements, which reach about 98.6%): moves went to m3-volatiles, items and switching moves to m3-items-switch, and abilities plus Skill Swap to m3-abilities. Usage limits stopped all three subagents on 2026-11-08, so now at most 2 run at once.
+
 ### M3 state as of 2026-11-02 (checked against git)
 - **Branches:** all work is on `m3-meta-coverage` (pushed). The sub-branches `m3-volatiles`, `m3-items-switch` and `m3-abilities` have **no commits of their own** (the first two point at 7af3dd2, the third at d732d63), so their 2026-10-25 subagent work was never committed and is lost; there is nothing to merge. Their worktrees under `.claude/worktrees/` only held untracked links. The `worktree-agent-*` branches point at main.
 - **Commits on m3-meta-coverage since main:** a921597 (batch 1), 7af3dd2 (hooks refactor), d732d63 (Unaware, Mold Breaker family, Infiltrator), cbe5db7 (damage_moves family: multi-hit and per-hit accuracy, Loaded Dice / Skill Link, accuracy and crit items/abilities, Counter / Mirror Coat / Metal Burst / Comeuppance, Payback / Avalanche / Stomping Tantrum, Brick Break, crash moves, Steel Beam, Belly Drum and other status moves, Gen 5+ 2-5 hit odds).

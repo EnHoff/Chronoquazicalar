@@ -66,6 +66,37 @@ OVERLORD = jnp.array([4096, 4506, 4915, 5325, 5734, 6144], jnp.int32)
 LOW_KICK_BP = jnp.array([20, 40, 60, 80, 100, 120], jnp.int32)
 LOW_KICK_LIMITS_HG = jnp.array([100, 250, 500, 1000, 2000], jnp.int32)
 HALF_HP_MOVES = (MOVE.ruination, MOVE.superfang)
+# M3 power / type / category moves (families/power_moves.py has the ones that need battle state)
+_MID = T.move_ids
+ELECTRO_BALL, GYRO_BALL = _MID["electroball"], _MID["gyroball"]
+ELECTRO_BALL_BP = jnp.array([40, 60, 80, 120, 150], jnp.int32)
+REVELATION_DANCE, RAGING_BULL, PHOTON_GEYSER, FLYING_PRESS = (
+    _MID[m] for m in ("revelationdance", "ragingbull", "photongeyser", "flyingpress")
+)
+INFERNAL_PARADE, BARB_BARRAGE, RISING_VOLTAGE = _MID["infernalparade"], _MID["barbbarrage"], _MID["risingvoltage"]
+EXPANDING_FORCE, PSYBLADE, BEAT_UP = _MID["expandingforce"], _MID["psyblade"], _MID["beatup"]
+REVERSAL, FLAIL, SHELL_SIDE_ARM = _MID["reversal"], _MID["flail"], _MID["shellsidearm"]
+REVERSAL_RATIO = jnp.array([2, 5, 10, 17, 33], jnp.int32)
+REVERSAL_BP = jnp.array([200, 150, 100, 80, 40, 20], jnp.int32)
+TAUROS_TYPE = jnp.full(len(T.species_ids), -1, jnp.int32)
+for _sp, _t in (("taurospaldeacombat", "fighting"), ("taurospaldeablaze", "fire"), ("taurospaldeaaqua", "water")):
+    TAUROS_TYPE = TAUROS_TYPE.at[T.species_ids[_sp]].set(TY[_t])
+# Sheer Force applies to every move with secondaries, even an empty one (Stone Axe, Ceaseless Edge)
+HAS_SECONDARIES = jnp.zeros(len(_MID), bool)
+for _m, _d in T.dex["moves"].items():
+    if _d.get("secondaries"):
+        HAS_SECONDARIES = HAS_SECONDARIES.at[_MID[_m]].set(True)
+# selfBoost (Scale Shot, Clanging Scales) runs after the hit loop's resolveFaints, where Gen 6+ battle.boost fails
+# once the user's foes have no Pokemon left; move.self boosts (Close Combat) run before faints resolve
+SELF_BOOST_AFTER_FAINTS = jnp.zeros(len(_MID), bool)
+for _m, _d in T.dex["moves"].items():
+    if _d.get("selfBoost"):
+        SELF_BOOST_AFTER_FAINTS = SELF_BOOST_AFTER_FAINTS.at[_MID[_m]].set(True)
+# Tera's 60 BP floor skips variable-power moves whose dex base power is 0 or 150 (Low Kick, Eruption, ...)
+NO_TERA_FLOOR = jnp.zeros(len(_MID), bool)
+for _m, _d in T.dex["moves"].items():
+    if "basePowerCallback" in _d.get("handlers", []) and _d.get("basePower", 0) in (0, 150):
+        NO_TERA_FLOOR = NO_TERA_FLOOR.at[_MID[_m]].set(True)
 
 
 class Combatant(NamedTuple):
@@ -86,6 +117,8 @@ class Combatant(NamedTuple):
     hp: jnp.ndarray = -1  # current HP; -1 = full
     fallen: jnp.ndarray = 0  # Supreme Overlord: fainted teammates counted on switch-in (0..5)
     flashfire: jnp.ndarray = False  # Flash Fire activated (1.5x Fire attacks while it keeps the ability)
+    spe: jnp.ndarray = -1  # Pokemon.getStat('spe') (boosts and ModifySpe, no Trick Room); -1 = boosted stat only
+    air: jnp.ndarray = 0  # engine.air_state: 1 = grounded by Gravity / Smack Down, 2 = airborne by Magnet Rise
 
 
 class FieldInfo(NamedTuple):
@@ -111,7 +144,9 @@ def current_hp(c: Combatant):
 
 
 def is_grounded(c: Combatant) -> jnp.ndarray:
-    return ~has_type(current_types(c), TY["flying"]) & (c.ability != ABILITY.levitate) & (c.item != ITEM.airballoon)
+    base = ~has_type(current_types(c), TY["flying"]) & (c.ability != ABILITY.levitate) & (c.item != ITEM.airballoon)
+    air = jnp.asarray(c.air)
+    return (air == 1) | ((air == 0) & base)
 
 
 def modify(value, mod4096):
@@ -143,6 +178,10 @@ def type_effectiveness(move_type, def_types, move_id=None):
     per_type = jnp.where(mults == 2.0, 1, jnp.where(mults == 0.5, -1, 0))
     if move_id is not None:
         per_type = jnp.where((move_id == MOVE.freezedry) & (def_types == TY["water"]), 1, per_type)
+        # Flying Press adds Flying's effectiveness against each type
+        fly = TYPE_CHART[TY["flying"], def_types]
+        fly_mod = jnp.where(fly == 2.0, 1, jnp.where(fly == 0.5, -1, 0))
+        per_type = per_type + jnp.where(move_id == FLYING_PRESS, fly_mod, 0)
     return immune, jnp.sum(per_type)
 
 
@@ -163,11 +202,19 @@ def move_type_and_bp(move_id, att: Combatant, dfn: Combatant, weather):
     sound = (row[MC["flags"]] & FLAG_BIT["sound"]) > 0
     mtype = jnp.where((att.ability == ABILITY.liquidvoice) & sound, TY["water"], mtype)
     mtype = jnp.where(move_id == MOVE.struggle, TYPE_NONE, mtype)  # Struggle is typeless ("???")
+    # Revelation Dance: the user's first type (its Tera type once Terastallized, not Stellar)
+    att_types = current_types(att)
+    first = jnp.where(att_types[0] == TYPE_NONE, att_types[1], att_types[0])
+    mtype = jnp.where((move_id == REVELATION_DANCE) & (first != TYPE_NONE), first, mtype)
+    # Raging Bull: the Paldean Tauros form's type
+    bull = TAUROS_TYPE[att.species]
+    mtype = jnp.where((move_id == RAGING_BULL) & (bull >= 0), bull, mtype)
     # basePowerCallback moves
     bp = jnp.where((move_id == MOVE.hex) & (dfn.status != 0), bp * 2, bp)
     bp = jnp.where((move_id == MOVE.acrobatics) & (att.item == 0), bp * 2, bp)
-    tw = SPECIES[dfn.species, SC["weight_hg"]]
-    uw = SPECIES[att.species, SC["weight_hg"]]
+    # int32: weights up to 9999 hg overflow int16 once multiplied (Heavy Slam into Ting-Lu)
+    tw = SPECIES[dfn.species, SC["weight_hg"]].astype(jnp.int32)
+    uw = SPECIES[att.species, SC["weight_hg"]].astype(jnp.int32)
     low_kick = LOW_KICK_BP[jnp.sum(tw >= LOW_KICK_LIMITS_HG)]
     bp = jnp.where((move_id == MOVE.lowkick) | (move_id == MOVE.grassknot), low_kick, bp)
     slam = jnp.select([uw >= tw * 5, uw >= tw * 4, uw >= tw * 3, uw >= tw * 2], [120, 100, 80, 60], 40)
@@ -178,7 +225,39 @@ def move_type_and_bp(move_id, att: Combatant, dfn: Combatant, weather):
     )
     positive = jnp.sum(jnp.maximum(att.boosts, 0))
     bp = jnp.where((move_id == MOVE.storedpower) | (move_id == MOVE.powertrip), bp + 20 * positive, bp)
+    # Electro Ball / Gyro Ball: from the two Pokemon's Speed (getStat, an int division by 0 counts as 0 / 1)
+    a_spe, d_spe = stat_speed(att), stat_speed(dfn)
+    ratio = jnp.where(d_spe > 0, a_spe // jnp.maximum(d_spe, 1), 0)
+    bp = jnp.where(move_id == ELECTRO_BALL, ELECTRO_BALL_BP[jnp.clip(ratio, 0, 4)], bp)
+    gyro = jnp.where(a_spe > 0, 25 * d_spe // jnp.maximum(a_spe, 1) + 1, 1)
+    bp = jnp.where(move_id == GYRO_BALL, jnp.minimum(gyro, 150), bp)
+    bp = jnp.where((move_id == INFERNAL_PARADE) & (dfn.status != 0), bp * 2, bp)
+    bp = jnp.where(move_id == BEAT_UP, 1, bp)  # each hit's power comes from families/power_moves.py (hit_power)
+    # Reversal / Flail: by the user's HP in 48ths
+    ratio48 = jnp.maximum(current_hp(att) * 48 // att.stats[0], 1)
+    bp = jnp.where((move_id == REVERSAL) | (move_id == FLAIL), REVERSAL_BP[jnp.sum(ratio48 >= REVERSAL_RATIO)], bp)
     return mtype, bp
+
+
+def stat_speed(c: Combatant):
+    """getStat('spe'): Combatant.spe when the engine supplied it, else just the boosted stat."""
+    return jnp.where(jnp.asarray(c.spe) >= 0, c.spe, boosted_stat(c.stats[5], c.boosts[4]))
+
+
+def move_category(move_id, att: Combatant, dfn: Combatant = None):
+    """Category after onModifyMove: Photon Geyser is physical when the user's boosted Attack beats its SpA; Shell
+    Side Arm when the physical damage estimate beats the special one (Showdown flips a coin on a tie, OU-JAX
+    takes physical, which is also the harness's forced outcome)."""
+    cat = MOVES[move_id, MC["category"]]
+    atk, spa = boosted_stat(att.stats[1], att.boosts[0]), boosted_stat(att.stats[3], att.boosts[2])
+    cat = jnp.where((move_id == PHOTON_GEYSER) & (atk > spa), 0, cat)
+    if dfn is not None:
+        dfd, dsd = boosted_stat(dfn.stats[2], dfn.boosts[1]), boosted_stat(dfn.stats[4], dfn.boosts[3])
+        lf = 2 * att.level // 5 + 2
+        phys = (lf * 90 * atk // jnp.maximum(dfd, 1)) // 50
+        spec = (lf * 90 * spa // jnp.maximum(dsd, 1)) // 50
+        cat = jnp.where((move_id == SHELL_SIDE_ARM) & (phys >= spec), 0, cat)
+    return cat
 
 
 class Parts(NamedTuple):
@@ -227,32 +306,41 @@ def ignores_abilities(att: Combatant):
     )
 
 
-def effective_defender(att: Combatant, dfn: Combatant) -> Combatant:
-    """The defender as the attacker's move sees it: a Mold Breaker-type attacker ignores breakable abilities."""
-    return dfn._replace(ability=jnp.where(ignores_abilities(att) & BREAKABLE_J[dfn.ability], 0, dfn.ability))
+def effective_defender(att: Combatant, dfn: Combatant, move_id=None) -> Combatant:
+    """The defender as the attacker's move sees it: a Mold Breaker-type attacker (or Photon Geyser, an
+    ignoreAbility move) ignores breakable abilities."""
+    ignore = ignores_abilities(att)
+    if move_id is not None:
+        ignore = ignore | (move_id == PHOTON_GEYSER)
+    return dfn._replace(ability=jnp.where(ignore & BREAKABLE_J[dfn.ability], 0, dfn.ability))
 
 
 def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit) -> Parts:
     """Per-move part of the formula for a given crit outcome (see Parts)."""
-    dfn = effective_defender(att, dfn)
+    dfn = effective_defender(att, dfn, move_id)
     row = MOVES[move_id]
-    category = row[MC["category"]]
+    category = move_category(move_id, att, dfn)
     physical = category == 0
     flags = row[MC["flags"]]
     crit = crit | (row[MC["crit_ratio"]] >= 5)  # willCrit moves (Flower Trick, Wicked Blow, ...)
     mtype, bp = move_type_and_bp(move_id, att, dfn, field.weather)
+    # Rising Voltage: double power against a grounded target in Electric Terrain (basePowerCallback)
+    bp = jnp.where((move_id == RISING_VOLTAGE) & (field.terrain == TERRAIN_ELECTRIC) & is_grounded(dfn), bp * 2, bp)
     att_types, def_types = current_types(att), current_types(dfn)
     att_hp = current_hp(att)
 
     immune, type_mod = type_effectiveness(mtype, def_types, move_id)
-    immune |= (mtype == TY["ground"]) & ~is_grounded(dfn)
+    # Ground immunity is Pokemon.isGrounded alone (Gravity, Smack Down ground a Flying type: neutral there)
+    is_ground = mtype == TY["ground"]
+    immune = jnp.where(is_ground, ~is_grounded(dfn), immune)
     half = (move_id == HALF_HP_MOVES[0]) | (move_id == HALF_HP_MOVES[1])  # damageCallback moves with 0 base power
     damaging = ((category != 2) & (bp > 0)) | half
     bp = jnp.maximum(bp, 1)
 
     punch = (flags & FLAG_BIT["punch"]) > 0
-    contact = ((flags & FLAG_BIT["contact"]) > 0) & ~((att.item == ITEM.punchingglove) & punch)
-    has_secondary = (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
+    contact = ((flags & FLAG_BIT["contact"]) > 0) | ((move_id == SHELL_SIDE_ARM) & physical)
+    contact &= ~((att.item == ITEM.punchingglove) & punch)
+    has_secondary = HAS_SECONDARIES[move_id]
     sheer_force = (att.ability == ABILITY.sheerforce) & has_secondary
 
     # --- BasePower event, in handler priority order ----------------------------------------------
@@ -304,6 +392,11 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     m = chain_if(
         m, ((move_id == MOVE.collisioncourse) | (move_id == MOVE.electrodrift)) & (type_mod > 0), M_SUPER_EFFECTIVE_4_3
     )
+    m = chain_if(
+        m, (move_id == BARB_BARRAGE) & ((dfn.status == STATUS_ID["psn"]) | (dfn.status == STATUS_ID["tox"])), M_2
+    )
+    m = chain_if(m, (move_id == EXPANDING_FORCE) & (field.terrain == TERRAIN_PSYCHIC) & att_grounded, M_1_5)
+    m = chain_if(m, (move_id == PSYBLADE) & (field.terrain == TERRAIN_ELECTRIC), M_1_5)
     raw_bp, bp_mod = bp, m  # the modified base power itself is computed per hit (damage_finish)
     stellar = att.terastallized & (att.tera_type == TYPE_STELLAR)
     stellar_fresh = stellar & ((jnp.asarray(att.stellar_used, jnp.int32) & (1 << mtype)) == 0)
@@ -312,6 +405,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
         & jnp.where(stellar, stellar_fresh, has_type(att_types, mtype))
         & (row[MC["priority"]] <= 0)
         & (row[MC["multihit_max"]] == 0)
+        & ~NO_TERA_FLOOR[move_id]
     )
 
     # --- attack and defense ----------------------------------------------------------------------

@@ -72,6 +72,11 @@ for (const m of dex.moves.all().filter(available)) {
 	if (m.ignoreImmunity === false) out.ignoreImmunity = false; // e.g. Thunder Wave: status move that respects immunity
 	out.handlers = handlers(m);
 	out.conditionHandlers = conditionHandlers(m);
+	// Code in secondary / self effects (Spirit Shackle's trap, Tri Attack's status roll, ...); plain() drops it
+	out.effectHandlers = [
+		...(m.secondaries || []).flatMap(s => handlers(s).map(h => `secondary.${h}`)),
+		...(m.self ? handlers(m.self).map(h => `self.${h}`) : []),
+	];
 	moves[m.id] = out;
 }
 

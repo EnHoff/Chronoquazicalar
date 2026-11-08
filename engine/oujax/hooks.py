@@ -8,8 +8,20 @@ Hooks are plain Python functions traced into the jitted step: they must be branc
 take/return the state. Within an event, hooks run in descending priority, then registration order.
 
 Events (arguments after the state; return value):
-  before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent
+  before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent.
+                                                           Showdown's BeforeMove priorities: above 10 run before
+                                                           sleep / freeze (recharge), the rest after sleep /
+                                                           freeze / flinch, before paralysis
+  call_move(st, ctx)                    -> (st, mid, fails)  the move used calls another one (Sleep Talk): after
+                                                           PP and Choice lock; mid 0 = no call
   move_fails(st, ctx)                   -> fails           the move fails after PP is spent (Sucker Punch, ...)
+  try_move(st, ctx)                     -> (st, stop)      Showdown's TryMove: the move stops without failing
+                                                           (charge turn of Solar Beam, ...)
+  locked_move(st, side)                 -> slot            move slot the Pokemon must use (Outrage, charge and
+                                                           recharge turns), -1 if none: a single legal move
+                                                           action, no Tera, no switching, no PP spent
+  override_move(st, side, move_slot)    -> move_slot       the move actually used when the turn comes (Encore)
+  trapped(st, side)                     -> trapped         can't switch out by choice (partial trapping, ...)
   try_hit(st, ctx)                      -> (st, blocked)   Showdown's TryHit step: after Protect, before type
                                                            immunity and accuracy (absorbing abilities);
                                                            ctx.landed = the move reaches the target
@@ -30,6 +42,7 @@ Events (arguments after the state; return value):
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
   boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
+  hit_count(st, ctx, n)                 -> n               number of hits (Beat Up), at most engine.MAX_HITS
   hit_power(st, ctx, hit)               -> (mult, chain)   per-hit base power: raw multiplier and an extra
                                                            4096-based BasePower modifier (Triple Axel, Payback)
   damage_override(st, ctx, dmg)         -> dmg             replace a hit's damage (Counter, Endeavor, ...)
@@ -47,7 +60,12 @@ Events (arguments after the state; return value):
   secondaries(st, s, mid, chance)       -> (chance, blocked)  the move's secondary-effect chance, and whether the
                                                            target is shielded from it (Serene Grace, Shield Dust)
   indirect_damage(st, side, slot)       -> allowed         non-move damage through lose_hp (Magic Guard)
-  trapped(st, side)                     -> trapped         side can't switch out by choice (Magnet Pull, ...)
+  accuracy_mod(st, ctx, mod)            -> mod             4096-based ModifyAccuracy chain, before abilities and
+                                                           items (Gravity)
+  grounded(st, s, slot)                 -> air             1: grounded regardless (Gravity, Smack Down); 2: airborne
+                                                           (Magnet Rise); 0: by type, ability, item (max wins)
+  types(st, s, slot, types)             -> types           the (2,) current types of side s's active Pokemon
+                                                           before Tera (Double Shock's lost Electric type)
 
 ctx is a MoveCtx (see engine.py): user side s, target side o, their team slots, move id, move slot, keys, cfg,
 and flags about the move (category, landed, ...).
@@ -63,8 +81,9 @@ from typing import Callable, Dict, List, Tuple
 EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
-    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
-    "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage", "trapped",
+    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
+    "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod", "hit_count",
+    "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
@@ -99,8 +118,25 @@ def residual(order: float, name: str = ""):
     return deco
 
 
-def handlers(event: str) -> List[Callable]:
-    return [fn for _, _, fn in _hooks.get(event, [])]
+def handlers(event: str, above=None, at_most=None) -> List[Callable]:
+    """Handlers for an event in run order; above / at_most select a priority range (exclusive / inclusive)."""
+    return [
+        fn for p, _, fn in _hooks.get(event, []) if (above is None or -p > above) and (at_most is None or -p <= at_most)
+    ]
+
+
+# Showdown volatile id -> fn(st, side) -> bool, compared by bridge.Mirror.diff for the active Pokemon
+SHOWDOWN_VOLATILES: Dict[str, Callable] = {}
+
+
+def showdown_volatile(name: str):
+    """Decorator: fn(st, side) says whether side's active Pokemon has Showdown's volatile `name`."""
+
+    def deco(fn):
+        SHOWDOWN_VOLATILES[name] = fn
+        return fn
+
+    return deco
 
 
 def residual_handlers() -> List[Tuple[float, str, Callable]]:
@@ -132,7 +168,7 @@ SIDE = SlotRegistry("side")  # Battle.side_ex (2, N) int16
 FIELD = SlotRegistry("field")  # Battle.field_ex (N,) int16
 
 # Room reserved so states created before every family is imported still have the right shape
-VOL_SIZE, MON_SIZE, SIDE_SIZE, FIELD_SIZE = 48, 16, 24, 8
+VOL_SIZE, MON_SIZE, SIDE_SIZE, FIELD_SIZE = 64, 16, 24, 8
 
 
 def check_sizes():

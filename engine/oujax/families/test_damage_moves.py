@@ -57,6 +57,12 @@ HYDRAPPLE = mon("Hydrapple", "Leftovers", "Regenerator", ["Fickle Beam", "Protec
                 evs=WALL, nature="Bold", tera="Steel")  # fmt: skip
 DRAGAPULT = mon("Dragapult", "Heavy-Duty Boots", "Infiltrator", ["Dragon Darts", "U-turn", "Shadow Ball", "Draco Meteor"],
                 evs="252 HP / 4 Def / 252 Spe", nature="Timid", tera="Ghost")  # fmt: skip
+# Level 20 so every move below KOs it
+FRAIL = mon("Weavile", "Leftovers", "Pressure", ["Swords Dance", "Protect", "Knock Off", "Ice Shard"]).replace(
+    "Ability:", "Level: 20\nAbility:"
+)
+KOMMO_SCALES = mon("Kommo-o", "Life Orb", "Bulletproof", ["Scale Shot", "Close Combat", "Clanging Scales", "Protect"],
+                   evs=PHYS, nature="Jolly", tera="Steel")  # fmt: skip
 
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
@@ -98,6 +104,16 @@ class TestDamageMoves(MirrorScenarios, unittest.TestCase):
     def test_grassy_glide_endeavor_fickle_beam_dragon_darts(self):
         script = [(0, 0), (0, 2), (3, 1), (8, 8), (0, 0), (1, 1)]
         self.play(team(RILLABOOM, HYDRAPPLE), team(TUSK, DRAGAPULT), script)
+
+    def test_no_self_boosts_after_the_last_foe_faints(self):
+        # Gen 6+ battle.boost fails once the user's foes have no Pokemon left. selfBoost (Scale Shot, Clanging
+        # Scales) runs after faints resolve, so it does nothing on a KO of the last foe; Close Combat's move.self
+        # drop runs before (regression from L3a battle 0)
+        def ko(step, m):
+            self.assertEqual(m.sd["ended"], step == 2)
+
+        for move in (0, 1, 2):
+            self.play(team(KOMMO_SCALES), team(FRAIL), [(0, 0), (move, 0)], check=ko)
 
 
 if __name__ == "__main__":

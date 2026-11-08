@@ -24,7 +24,8 @@ ITEM = _ns(
     "leftovers blacksludge lifeorb choiceband choicespecs choicescarf boosterenergy heavydutyboots "
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
-    "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice",
+    "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
+    "powerherb",
 )
 ABILITY = _ns(
     T.ability_ids,
@@ -36,6 +37,7 @@ ABILITY = _ns(
     "solidrock prismarmor fluffy icescales thickfat heatproof purifyingsalt furcoat vesselofruin tabletsofruin "
     "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator compoundeyes hustle "
     "victorystar noguard keeneye mindseye superluck skilllink "
+    "poisonpuppeteer "
     # M3 ability families (engine/oujax/families/*_abilities.py)
     "neutralizinggas trace dauntlessshield intimidate download windrider libero protean illusion hospitality "
     "goodasgold waterabsorb voltabsorb flashfire sapsipper dryskin motordrive wellbakedbody eartheater magicbounce "
