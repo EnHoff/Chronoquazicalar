@@ -47,6 +47,12 @@ Events (arguments after the state; return value):
   damage_override(st, ctx, dmg)         -> dmg             replace a hit's damage (Counter, Endeavor, ...)
   crit_stage(st, ctx, stage)            -> stage           critical-hit stage (Focus Energy, ...)
   accuracy(st, ctx, acc)                -> acc             accuracy before stages; 101 means "always hits"
+  accuracy_mod(st, ctx, mod)            -> mod             4096-based ModifyAccuracy chain, before abilities and
+                                                           items (Gravity)
+  grounded(st, s, slot)                 -> air             1: grounded regardless (Gravity, Smack Down); 2: airborne
+                                                           (Magnet Rise); 0: by type, ability, item (max wins)
+  types(st, s, slot, types)             -> types           the (2,) current types of side s's active Pokemon
+                                                           before Tera (Double Shock's lost Electric type)
 
 ctx is a MoveCtx (see engine.py): user side s, target side o, their team slots, move id, move slot, keys, cfg,
 and flags about the move (category, landed, ...).
@@ -63,7 +69,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
-    "locked_move", "override_move", "trapped", "call_move", "grounded", "types",
+    "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

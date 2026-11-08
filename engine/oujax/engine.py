@@ -35,6 +35,7 @@ from engine.oujax.damage import (
     damage_parts,
     has_type,
     modify,
+    move_category,
     move_type_and_bp,
     type_effectiveness,
 )
@@ -283,21 +284,36 @@ def types_now(st: Battle, s, slot):
     is_active = slot == act(st, s)
     roost = is_active & st.roosted[s]
     base = jnp.where(roost & (base == TY["flying"]), TYPE_NONE, base)
+    for h in hooks.handlers("types"):
+        base = jnp.where(is_active, h(st, s, slot, base), base)
     tera = st.terastallized[s, slot]
     return jnp.where(tera, jnp.array([_i(st.tera_type[s, slot]), TYPE_NONE]), base)
 
 
+def air_state(st: Battle, s, slot):
+    """grounded hooks for side s's team slot: 0 = by type / ability / item, 1 = grounded (Gravity, Smack Down),
+    2 = airborne (Magnet Rise). Volatile effects only count for the active Pokemon."""
+    out = jnp.int32(0)
+    for h in hooks.handlers("grounded"):
+        out = jnp.maximum(out, _i(h(st, s, slot)))
+    return out
+
+
 def grounded(st: Battle, s, slot):
     t = types_now(st, s, slot)
-    return (
+    air = air_state(st, s, slot)
+    base = (
         ~has_type(t, TY["flying"]) & (st.ability[s, slot] != ABILITY.levitate) & (st.item[s, slot] != ITEM.airballoon)
     )
+    return (air == 1) | ((air == 0) & base)
 
 
 def combatant(st: Battle, s) -> Combatant:
     slot = act(st, s)
     base = st.base_types[s, slot].astype(jnp.int32)
     base = jnp.where(st.roosted[s] & (base == TY["flying"]), TYPE_NONE, base)
+    for h in hooks.handlers("types"):
+        base = h(st, s, slot, base)
     return Combatant(
         species=_i(st.species[s, slot]),
         level=_i(st.level[s, slot]),
@@ -313,6 +329,8 @@ def combatant(st: Battle, s) -> Combatant:
         stellar_used=st.stellar_used[s, slot],
         hp=_i(st.hp[s, slot]),
         fallen=_i(st.overlord_fallen[s]),
+        spe=stat_speed(st, s),
+        air=air_state(st, s, slot),
     )
 
 
@@ -423,7 +441,14 @@ def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True,
 
 
 def action_speed(st: Battle, s):
-    """Pokemon.getActionSpeed: boosted Speed with ModifySpe effects, Trick Room inversion, 13-bit truncation."""
+    """Pokemon.getActionSpeed: getStat('spe'), Trick Room inversion, 13-bit truncation."""
+    spe = stat_speed(st, s)
+    spe = jnp.where(st.trick_room > 0, 10000 - spe, spe)
+    return spe & 8191
+
+
+def stat_speed(st: Battle, s):
+    """Pokemon.getStat('spe'): boosted Speed with ModifySpe effects, capped at 10000."""
     slot = act(st, s)
     spe = boosted_stat(_i(st.stats[s, slot, 5]), _i(st.boosts[s, 4]))
     mod = jnp.int32(4096)
@@ -435,9 +460,7 @@ def action_speed(st: Battle, s):
     mod = chain_if(mod, st.tailwind[s] > 0, M_2)
     for h in hooks.handlers("speed"):
         mod = h(st, s, mod)
-    spe = modify(spe, mod)
-    spe = jnp.where(st.trick_room > 0, 10000 - spe, spe)
-    return spe & 8191
+    return jnp.minimum(modify(spe, mod), 10000)
 
 
 def p1_first(key, prio, spe, cfg: Config):
@@ -820,6 +843,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     acc_base = acc
     # ModifyAccuracy (before stages): Wide Lens, Zoom Lens, Compound Eyes, Hustle, Victory Star
     a_mod = jnp.int32(4096)
+    for h in hooks.handlers("accuracy_mod"):
+        a_mod = h(st, ctx, a_mod)  # field effects (Gravity, priority 0) chain before abilities and items
     user_item, user_ab = st.item[s, slot], st.ability[s, slot]
     a_mod = chain_if(a_mod, user_item == ITEM.widelens, 4505)
     a_mod = chain_if(a_mod, (user_item == ITEM.zoomlens) & (vol(st, o, "moved") > 0), 4915)
@@ -860,7 +885,9 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     immune, _ = type_effectiveness(mtype, t_types, mid)
     # Levitate doesn't keep a Mold Breaker-type attacker's Ground moves off
     breaks_levitate = ignores_abilities_ab(st.ability[s, slot]) & (st.ability[o, tslot] == ABILITY.levitate)
-    immune |= (mtype == TY["ground"]) & ~grounded(st, o, tslot) & ~breaks_levitate
+    breaks_levitate &= air_state(st, o, tslot) != 2  # Magnet Rise keeps it up regardless
+    # Ground immunity comes from isGrounded alone (a grounded Flying type takes Ground moves)
+    immune = jnp.where(mtype == TY["ground"], ~grounded(st, o, tslot) & ~breaks_levitate, immune)
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
@@ -965,6 +992,7 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         parts_plain = damage_parts(mid, att_c, def_c, field, will_crit)
         parts_crit = damage_parts(mid, att_c, def_c, field, jnp.bool_(True))
     maxhp_o = _i(st.stats[o, tslot, 0])
+    move_cat = move_category(mid, att_c)
 
     def hit(h, carry):
         # One hit, traced once and run MAX_HITS times by fori_loop (keeps the compiled step small)
@@ -1039,8 +1067,8 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         st = _eat_if(st, o, go & (h + 1 < n_hits))
         # Damage taken from the foe this turn, by category (Counter, Mirror Coat, Avalanche, ...)
         taken = go & ~sub_now & (to_mon > 0)
-        st = set_vol(st, o, "dmg_phys", to_mon, taken & (row[MC["category"]] == 0))
-        st = set_vol(st, o, "dmg_spec", to_mon, taken & (row[MC["category"]] == 1))
+        st = set_vol(st, o, "dmg_phys", to_mon, taken & (move_cat == 0))
+        st = set_vol(st, o, "dmg_spec", to_mon, taken & (move_cat == 1))
         st = set_vol(st, o, "dmg_last", jnp.where(sub_now, 0, to_mon) + 1, go)
         return st, total + jnp.where(go, jnp.where(sub_now, to_sub, to_mon), 0), missed
 

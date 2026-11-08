@@ -68,6 +68,14 @@ class TestVolatiles(MirrorScenarios, unittest.TestCase):
         self.play(team(ZAPDOS, PEX), team(GAMBIT, CORV), script,
                   cfg=Config(forced=True, secondaries=True, confusion_hit=True), forced_opts=CONFUSE)  # fmt: skip
 
+    def test_strange_steam_and_water_pulse_confuse(self):
+        # Their 20% confusion (forced on); confusion can't be stacked; the confused target hits itself
+        steam = mon("Primarina", "Leftovers", "Torrent", ["Strange Steam", "Water Pulse", "Protect", "Moonblast"],
+                    evs="252 HP / 252 SpA / 4 SpD", nature="Modest", tera="Water")  # fmt: skip
+        script = [(0, 0), (0, 1), (1, 1), (2, 0), (1, 1), (0, 0)]
+        self.play(team(steam, PEX), team(GAMBIT, CORV),
+                  script, cfg=Config(forced=True, secondaries=True, confusion_hit=True), forced_opts=CONFUSE)  # fmt: skip
+
     def test_hurricane_never_misses_in_rain(self):
         # Every accuracy check fails, except Hurricane's in rain
         script = [(0, 0), (0, 0), (1, 0), (0, 1)]

@@ -51,6 +51,11 @@ HANDWRITTEN_MOVES = {
     "sleeptalk",
     # M3 trapping family
     "magmastorm", "whirlpool", "firespin", "infestation", "meanlook", "block", "jawlock", "noretreat",
+    # M3 power / type / category moves (damage.py, families/power_moves.py)
+    "electroball", "gyroball", "risingvoltage", "expandingforce", "psyblade", "barbbarrage", "infernalparade",
+    "revelationdance", "ragingbull", "photongeyser", "flyingpress", "watershuriken", "charge",
+    # M3 field_moves family
+    "smackdown", "magnetrise", "gravity", "perishsong",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
