@@ -56,6 +56,12 @@ HANDWRITTEN_MOVES = {
     "revelationdance", "ragingbull", "photongeyser", "flyingpress", "watershuriken", "charge",
     # M3 field_moves family
     "smackdown", "magnetrise", "gravity", "perishsong",
+    # M3 status_moves family, move_misc / charge_moves / power_moves additions
+    "focusenergy", "imprison", "stockpile", "spite", "speedswap", "junglehealing", "lunarblessing",
+    "hyperspacefury", "doubleshock", "fellstinger", "stoneaxe", "sparklingaria", "burningbulwark", "beakblast",
+    "focuspunch", "skyattack", "rockwrecker", "beatup",
+    "reversal", "flail", "shellsidearm",
+    "sandtomb", "thundercage", "gigaimpact",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",

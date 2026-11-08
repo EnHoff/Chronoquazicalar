@@ -21,6 +21,7 @@ import jax.numpy as jnp
 
 from engine.oujax import hooks
 from engine.oujax.damage import (
+    HAS_SECONDARIES,
     M_0_5,
     M_1_5,
     M_2,
@@ -133,7 +134,7 @@ SPECIAL = {
     ).split()
 }
 # Protect-family moves: PROTECTS block moves for the rest of the turn; STALLING moves share Protect's stall counter
-_PROTECT_IDS = [MID[n] for n in ("protect", "detect", "banefulbunker", "spikyshield")]
+_PROTECT_IDS = [MID[n] for n in ("protect", "detect", "banefulbunker", "spikyshield", "burningbulwark")]
 PROTECTS = jnp.zeros(len(MID), bool).at[jnp.array(_PROTECT_IDS)].set(True)
 STALLING = PROTECTS.at[MID["endure"]].set(True)
 # Moves usable while asleep (Sleep Talk): sleep still ticks, but doesn't stop the move
@@ -960,6 +961,9 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     )
     n_hits = jnp.where((mh_max == 10) & dice, dice_10, n_hits)
     n_hits = jnp.where(mh_max == 0, 1, n_hits)
+    if ctx is not None:
+        for hk in hooks.handlers("hit_count"):
+            n_hits = jnp.minimum(_i(hk(st, ctx, n_hits)), MAX_HITS)
     # Every hit after the first re-checks accuracy for Triple Axel-style moves (not with Skill Link / Loaded Dice)
     multiacc = (row[MC["multiaccuracy"]] == 1) & (user_ab != ABILITY.skilllink) & ~dice
     if ctx is not None:
@@ -992,7 +996,7 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         parts_plain = damage_parts(mid, att_c, def_c, field, will_crit)
         parts_crit = damage_parts(mid, att_c, def_c, field, jnp.bool_(True))
     maxhp_o = _i(st.stats[o, tslot, 0])
-    move_cat = move_category(mid, att_c)
+    move_cat = move_category(mid, att_c, def_c)
 
     def hit(h, carry):
         # One hit, traced once and run MAX_HITS times by fori_loop (keeps the compiled step small)
@@ -1095,10 +1099,11 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     # Rocky Helmet on contact (not through a substitute; Punching Glove makes punches non-contact)
     punch = (row[MC["flags"]] & FLAG_BIT["punch"]) > 0
     contact = ((row[MC["flags"]] & FLAG_BIT["contact"]) > 0) & ~(punch & (st.item[s, slot] == ITEM.punchingglove))
+    # Shell Side Arm makes contact when it goes physical
+    ssa = (mid == MID["shellsidearm"]) & (move_category(mid, combatant(st, s), combatant(st, o)) == 0)
+    contact |= ssa
     # Sheer Force drops the move's secondary effects (and its self effects) and Life Orb recoil
-    sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & (
-        (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
-    )
+    sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & HAS_SECONDARIES[mid]
     helmet = connected & contact & ~hit_sub & (st.item[o, tslot] == ITEM.rockyhelmet)
     st = lose_hp(st, s, slot, maxhp // 6, helmet)
     # Self stat drops / raises from the move (Close Combat, Draco Meteor, ...)

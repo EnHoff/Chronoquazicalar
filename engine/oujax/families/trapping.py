@@ -1,7 +1,7 @@
 """
 engine/oujax/families/trapping.py
-Moves that keep the target in: partial trapping (Magma Storm, Whirlpool, Fire Spin, Infestation:
-partiallytrapped, 4-5 turns of 1/8 max HP), Mean Look / Block / Jaw Lock (trapped while the trapper stays in),
+Moves that keep the target in: partial trapping (Magma Storm, Whirlpool, Fire Spin, Infestation, Sand Tomb,
+Thunder Cage: partiallytrapped, 4-5 turns of 1/8 max HP), Mean Look / Block / Jaw Lock (trapped while the trapper stays in),
 No Retreat (trapped for good), plus Rapid Spin / Mortal Spin freeing the user from partial trapping and Leech
 Seed.
 
@@ -24,7 +24,7 @@ for _name in (
 ):
     hooks.VOL.add(_name)
 
-PARTIAL_TRAP = move_table("magmastorm whirlpool firespin infestation")
+PARTIAL_TRAP = move_table("magmastorm whirlpool firespin infestation sandtomb thundercage")
 SPINS = move_table("rapidspin mortalspin")
 
 

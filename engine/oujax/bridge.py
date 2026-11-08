@@ -191,6 +191,11 @@ class Mirror:
             if kind == "move":
                 active = req["active"][0]
                 sd_moves = [not m.get("disabled") and m.get("pp", 1) > 0 for m in active["moves"]]
+                # A hidden disable (Imprison) shows as enabled in the request, but Showdown rejects the choice;
+                # the move slot itself says it's disabled
+                slots = sd["sides"][s]["pokemon"][sd["sides"][s]["active"][0]]["moves"]
+                if len(slots) == len(sd_moves):
+                    sd_moves = [ok and not slot["disabled"] for ok, slot in zip(sd_moves, slots)]
                 if len(active["moves"]) == 1 and active["moves"][0]["id"] == "struggle":
                     sd_moves = [True]
                 ours_moves = [bool(x) for x in legal[s, : len(sd_moves)]]

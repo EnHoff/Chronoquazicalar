@@ -11,6 +11,7 @@ from engine.oujax.families import (  # noqa: F401
     field_moves,
     move_misc,
     power_moves,
+    status_moves,
     trapping,
     volatiles,
 )

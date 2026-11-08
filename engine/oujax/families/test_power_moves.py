@@ -1,7 +1,8 @@
 """
 L1 checks for moves whose power, type, category or effectiveness depends on the Pokemon or the field (Electro
 Ball, Gyro Ball, Rising Voltage, Expanding Force, Psyblade, Barb Barrage, Infernal Parade, Revelation Dance,
-Raging Bull, Photon Geyser, Flying Press) and for Tera's 60 BP floor skipping variable-power moves, against
+Raging Bull, Photon Geyser, Shell Side Arm, Flying Press, Reversal, Flail, Stone Axe with Sheer Force) and for Tera's 60 BP floor skipping
+variable-power moves, against
 @smogon/calc on random pool attackers and defenders (as engine/oujax/test_damage.py). The battle-state parts
 (Charge, Water Shuriken's hits) are L2 scenarios.
 """
@@ -31,7 +32,7 @@ from engine.oujax.test_l2 import CORV, MirrorScenarios, mon, team
 L1_MOVES = (
     "electroball", "gyroball", "risingvoltage", "expandingforce", "psyblade", "barbbarrage", "infernalparade",
     "revelationdance", "ragingbull", "photongeyser", "flyingpress", "lowkick", "grassknot", "heavyslam",
-    "eruption", "waterspout",
+    "eruption", "waterspout", "stoneaxe", "reversal", "flail", "shellsidearm",
 )  # fmt: skip
 # Attackers that actually use the type-changing moves, so their own rule is exercised
 USERS = {
@@ -82,6 +83,9 @@ class Builder(CaseBuilder):
         # Raging Bull breaks screens before it hits (calc folds that in; the engine's move_try_hit hook does it)
         if move == "ragingbull":
             case.update(reflect=False, light_screen=False, aurora_veil=False)
+        # Sheer Force counts Stone Axe's empty secondary
+        if move == "stoneaxe" and r.random() < 0.5:
+            case["att"] = dict(case["att"], ability="sheerforce", paradox=0)
         case["move"] = T.move_ids[move]
         return case
 
@@ -168,6 +172,12 @@ class TestPowerMovesL2(MirrorScenarios, unittest.TestCase):
         # Parade on any status
         script = [(0, 0), (0, 0), (2, 0), (0, 0), (1, 1), (1, 0), (3, 2), (8, 3), (0, 2), (1, 0)]
         self.play(team(GRENINJA, PEX_BB), team(GALLADE, PEX_COUNTER), script)
+
+    def test_shell_side_arm_contact_when_physical(self):
+        # Physical against Corviknight's lower Def / SpD ratio (so Rocky Helmet hurts), special into Toxapex
+        slowbro = mon("Slowbro-Galar", "Leftovers", "Frisk", ["Shell Side Arm", "Slack Off", "Reversal", "Protect"],
+                      evs="252 HP / 252 Atk / 4 SpD", nature="Adamant", tera="Poison")  # fmt: skip
+        self.play(team(slowbro, ZAPDOS), team(CORV, PEX_COUNTER), [(0, 0), (0, 1), (0, 8), (0, 2), (2, 2)])
 
 
 if __name__ == "__main__":

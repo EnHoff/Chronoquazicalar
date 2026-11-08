@@ -42,6 +42,7 @@ Events (arguments after the state; return value):
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
   boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
+  hit_count(st, ctx, n)                 -> n               number of hits (Beat Up), at most engine.MAX_HITS
   hit_power(st, ctx, hit)               -> (mult, chain)   per-hit base power: raw multiplier and an extra
                                                            4096-based BasePower modifier (Triple Axel, Payback)
   damage_override(st, ctx, dmg)         -> dmg             replace a hit's damage (Counter, Endeavor, ...)
@@ -69,7 +70,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
-    "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod",
+    "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod", "hit_count",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

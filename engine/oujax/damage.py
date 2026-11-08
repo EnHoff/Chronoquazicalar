@@ -74,10 +74,18 @@ REVELATION_DANCE, RAGING_BULL, PHOTON_GEYSER, FLYING_PRESS = (
     _MID[m] for m in ("revelationdance", "ragingbull", "photongeyser", "flyingpress")
 )
 INFERNAL_PARADE, BARB_BARRAGE, RISING_VOLTAGE = _MID["infernalparade"], _MID["barbbarrage"], _MID["risingvoltage"]
-EXPANDING_FORCE, PSYBLADE = _MID["expandingforce"], _MID["psyblade"]
+EXPANDING_FORCE, PSYBLADE, BEAT_UP = _MID["expandingforce"], _MID["psyblade"], _MID["beatup"]
+REVERSAL, FLAIL, SHELL_SIDE_ARM = _MID["reversal"], _MID["flail"], _MID["shellsidearm"]
+REVERSAL_RATIO = jnp.array([2, 5, 10, 17, 33], jnp.int32)
+REVERSAL_BP = jnp.array([200, 150, 100, 80, 40, 20], jnp.int32)
 TAUROS_TYPE = jnp.full(len(T.species_ids), -1, jnp.int32)
 for _sp, _t in (("taurospaldeacombat", "fighting"), ("taurospaldeablaze", "fire"), ("taurospaldeaaqua", "water")):
     TAUROS_TYPE = TAUROS_TYPE.at[T.species_ids[_sp]].set(TY[_t])
+# Sheer Force applies to every move with secondaries, even an empty one (Stone Axe, Ceaseless Edge)
+HAS_SECONDARIES = jnp.zeros(len(_MID), bool)
+for _m, _d in T.dex["moves"].items():
+    if _d.get("secondaries"):
+        HAS_SECONDARIES = HAS_SECONDARIES.at[_MID[_m]].set(True)
 # Tera's 60 BP floor skips variable-power moves whose dex base power is 0 or 150 (Low Kick, Eruption, ...)
 NO_TERA_FLOOR = jnp.zeros(len(_MID), bool)
 for _m, _d in T.dex["moves"].items():
@@ -217,6 +225,10 @@ def move_type_and_bp(move_id, att: Combatant, dfn: Combatant, weather):
     gyro = jnp.where(a_spe > 0, 25 * d_spe // jnp.maximum(a_spe, 1) + 1, 1)
     bp = jnp.where(move_id == GYRO_BALL, jnp.minimum(gyro, 150), bp)
     bp = jnp.where((move_id == INFERNAL_PARADE) & (dfn.status != 0), bp * 2, bp)
+    bp = jnp.where(move_id == BEAT_UP, 1, bp)  # each hit's power comes from families/power_moves.py (hit_power)
+    # Reversal / Flail: by the user's HP in 48ths
+    ratio48 = jnp.maximum(current_hp(att) * 48 // att.stats[0], 1)
+    bp = jnp.where((move_id == REVERSAL) | (move_id == FLAIL), REVERSAL_BP[jnp.sum(ratio48 >= REVERSAL_RATIO)], bp)
     return mtype, bp
 
 
@@ -225,11 +237,20 @@ def stat_speed(c: Combatant):
     return jnp.where(jnp.asarray(c.spe) >= 0, c.spe, boosted_stat(c.stats[5], c.boosts[4]))
 
 
-def move_category(move_id, att: Combatant):
-    """Category after onModifyMove: Photon Geyser is physical when the user's boosted Attack beats its SpA."""
+def move_category(move_id, att: Combatant, dfn: Combatant = None):
+    """Category after onModifyMove: Photon Geyser is physical when the user's boosted Attack beats its SpA; Shell
+    Side Arm when the physical damage estimate beats the special one (Showdown flips a coin on a tie, OU-JAX
+    takes physical, which is also the harness's forced outcome)."""
     cat = MOVES[move_id, MC["category"]]
-    phys = boosted_stat(att.stats[1], att.boosts[0]) > boosted_stat(att.stats[3], att.boosts[2])
-    return jnp.where((move_id == PHOTON_GEYSER) & phys, 0, cat)
+    atk, spa = boosted_stat(att.stats[1], att.boosts[0]), boosted_stat(att.stats[3], att.boosts[2])
+    cat = jnp.where((move_id == PHOTON_GEYSER) & (atk > spa), 0, cat)
+    if dfn is not None:
+        dfd, dsd = boosted_stat(dfn.stats[2], dfn.boosts[1]), boosted_stat(dfn.stats[4], dfn.boosts[3])
+        lf = 2 * att.level // 5 + 2
+        phys = (lf * 90 * atk // jnp.maximum(dfd, 1)) // 50
+        spec = (lf * 90 * spa // jnp.maximum(dsd, 1)) // 50
+        cat = jnp.where((move_id == SHELL_SIDE_ARM) & (phys >= spec), 0, cat)
+    return cat
 
 
 class Parts(NamedTuple):
@@ -291,7 +312,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     """Per-move part of the formula for a given crit outcome (see Parts)."""
     dfn = effective_defender(att, dfn, move_id)
     row = MOVES[move_id]
-    category = move_category(move_id, att)
+    category = move_category(move_id, att, dfn)
     physical = category == 0
     flags = row[MC["flags"]]
     crit = crit | (row[MC["crit_ratio"]] >= 5)  # willCrit moves (Flower Trick, Wicked Blow, ...)
@@ -310,8 +331,9 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     bp = jnp.maximum(bp, 1)
 
     punch = (flags & FLAG_BIT["punch"]) > 0
-    contact = ((flags & FLAG_BIT["contact"]) > 0) & ~((att.item == ITEM.punchingglove) & punch)
-    has_secondary = (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
+    contact = ((flags & FLAG_BIT["contact"]) > 0) | ((move_id == SHELL_SIDE_ARM) & physical)
+    contact &= ~((att.item == ITEM.punchingglove) & punch)
+    has_secondary = HAS_SECONDARIES[move_id]
     sheer_force = (att.ability == ABILITY.sheerforce) & has_secondary
 
     # --- BasePower event, in handler priority order ----------------------------------------------

@@ -30,7 +30,7 @@ for _name in (
     hooks.VOL.add(_name)
 
 RAMPAGE = MOVES[:, MC["self_volatile"]] == VOLATILES.index("lockedmove")
-CHARGE = move_table("meteorbeam solarbeam solarblade phantomforce")
+CHARGE = move_table("meteorbeam solarbeam solarblade phantomforce skyattack")
 SOLAR = move_table("solarbeam solarblade")
 SEMI_INVULNERABLE = move_table("phantomforce")
 PHANTOM_FORCE = MID["phantomforce"]
@@ -167,5 +167,5 @@ def _residual(st, key, cfg, cond):
 hooks.showdown_volatile("lockedmove")(lambda st, s: vol(st, s, "lock_slot") > 0)
 hooks.showdown_volatile("twoturnmove")(lambda st, s: vol(st, s, "twoturn") > 0)
 hooks.showdown_volatile("mustrecharge")(lambda st, s: vol(st, s, "recharge") == 1)
-for _name in ("meteorbeam", "solarbeam", "solarblade", "phantomforce"):
+for _name in ("meteorbeam", "solarbeam", "solarblade", "phantomforce", "skyattack"):
     hooks.showdown_volatile(_name)((lambda m: lambda st, s: vol(st, s, "charge_mid") == m)(MID[_name]))

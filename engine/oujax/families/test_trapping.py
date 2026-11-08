@@ -59,6 +59,14 @@ class TestTrapping(MirrorScenarios, unittest.TestCase):
         script = [(0, 0), (0, 1), (2, 1), (2, 1)]
         self.play(team(VENUSAUR, PEX), team(TUSK, CORV), script)
 
+    def test_sand_tomb_thunder_cage_giga_impact(self):
+        # Sand Tomb and Thunder Cage trap like Whirlpool; Giga Impact needs a recharge turn
+        hippo = mon("Hippowdon", "Leftovers", "Frisk", ["Sand Tomb", "Thunder Cage", "Giga Impact", "Slack Off"],
+                    evs=WALL, nature="Impish", tera="Ground")  # fmt: skip
+        script = [(0, 0), (1, 1), (2, 1), (0, 1), (3, 1)]
+        self.play(team(hippo, PEX), team(CORV, TUSK), script)
+        self.play(team(hippo, PEX), team(TUSK, CORV), [(0, 0), (0, 3), (3, 3), (3, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()
