@@ -185,6 +185,25 @@ def worklist(pool_path: Path = POOL) -> List[tuple]:
     return out
 
 
+def covered_pool_teams(n: int, seed: int = 0, pool_path: Path = POOL) -> List[str]:
+    """n real pool teams (Showdown export text) whose every set is covered, drawn without replacement with
+    probability proportional to their recency weight."""
+    exports, weights = [], []
+    with open(pool_path) as f:
+        for line in f:
+            t = json.loads(line)
+            if all(covered_set(s) for s in t["sets"]):
+                exports.append(t["export"].strip() + "\n")
+                weights.append(t["weight"])
+    if len(exports) < n:
+        raise ValueError(f"only {len(exports)} fully covered pool teams, {n} requested")
+    rng = random.Random(seed)
+    # Weighted sampling without replacement (Efraimidis-Spirakis keys)
+    keys = [rng.random() ** (1.0 / max(w, 1e-12)) for w in weights]
+    order = sorted(range(len(exports)), key=lambda i: -keys[i])
+    return [exports[i] for i in order[:n]]
+
+
 def build_covered_teams(n: int, seed: int = 0, pool_path: Path = POOL, validate: bool = True) -> List[str]:
     """n teams of 6 distinct species built from covered pool sets, as Showdown export text. Teams that fail
     Showdown's gen9ou validator are discarded and redrawn."""
