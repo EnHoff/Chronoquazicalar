@@ -135,6 +135,12 @@ SPECIAL = {
 _PROTECT_IDS = [MID[n] for n in ("protect", "detect", "banefulbunker", "spikyshield")]
 PROTECTS = jnp.zeros(len(MID), bool).at[jnp.array(_PROTECT_IDS)].set(True)
 STALLING = PROTECTS.at[MID["endure"]].set(True)
+# Moves usable while asleep (Sleep Talk): sleep still ticks, but doesn't stop the move
+SLEEP_USABLE = (
+    jnp.zeros(len(MID), bool)
+    .at[jnp.array([MID[m] for m, d in T.dex["moves"].items() if d.get("sleepUsable")])]
+    .set(True)
+)
 
 
 class Config(NamedTuple):
@@ -173,6 +179,7 @@ class MoveCtx(NamedTuple):
     acc_base: jnp.ndarray = jnp.int32(101)  # accuracy before ModifyAccuracy and stages
     acc_chain: jnp.ndarray = jnp.int32(4096)  # ModifyAccuracy modifier
     acc_stage: jnp.ndarray = jnp.int32(0)  # accuracy minus evasion stage, clipped
+    base_mid: jnp.ndarray = jnp.int32(0)  # the move chosen (Sleep Talk) when mid is a move it called
 
 
 # Core per-turn bookkeeping used by several families (claimed here, before any family module)
@@ -653,9 +660,16 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     ctx = MoveCtx(
         s=s, o=o, slot=slot, tslot=tslot, mid=mid, move_slot=move_slot, key=keys[12], cfg=cfg,
         is_status=is_status, targets_foe=targets_foe, foe_pending_move=_i(foe_pending_move), acting=user_alive,
+        base_mid=mid,
     )  # fmt: skip
 
-    # BeforeMove: sleep and freeze, flinch, full paralysis
+    # BeforeMove: recharge (priority 11), sleep and freeze (10), flinch (8), family effects, full paralysis (1)
+    early = jnp.bool_(False)
+    for h in hooks.handlers("before_move", above=10):
+        st, b = h(st, ctx._replace(moves=user_alive & ~early))
+        early |= b
+    user_alive_pre = user_alive
+    user_alive = user_alive & ~early
     status = st.status[s, slot]
     asleep = status == SLP
     turns_left = _i(st.status_turns[s, slot]) - 1
@@ -670,14 +684,15 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     st = st.replace(
         status=st.status.at[s, slot].set(jnp.where((status == FRZ) & thaws & user_alive, 0, st.status[s, slot]))
     )
-    blocked = (asleep & ~wakes) | ((status == FRZ) & ~thaws)
+    blocked = (asleep & ~wakes & ~SLEEP_USABLE[mid]) | ((status == FRZ) & ~thaws)
     blocked |= st.flinch[s]
-    for h in hooks.handlers("before_move"):
+    for h in hooks.handlers("before_move", at_most=10):
         st, b = h(st, ctx._replace(moves=user_alive & ~blocked))
         blocked |= b
     # Paralysis has the lowest BeforeMove priority (1), after confusion (3), Taunt (5), ...
     blocked |= (status == PAR) & chance(keys[1], 1, 4, cfg.full_para, cfg)
     moves = user_alive & ~blocked
+    user_alive = user_alive_pre
     ctx = ctx._replace(moves=moves)
 
     # Use the move: PP (Pressure costs one more), Choice lock
@@ -708,10 +723,36 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
         )
     )
 
+    # Moves that call another move (Sleep Talk): from here on the called move runs, without BeforeMove or
+    # its own PP; Pressure's extra PP for the called move's targets comes off the caller's slot
+    base_mid, call_fails = mid, jnp.bool_(False)
+    for h in hooks.handlers("call_move"):
+        st, new_mid, f = h(st, ctx._replace(moves=moves))
+        mid = jnp.where(moves & (new_mid > 0), new_mid, mid)
+        call_fails |= moves & f
+    called = mid != base_mid
+    row = MOVES[mid]
+    category = row[MC["category"]]
+    is_status = category == 2
+    targets_foe = jnp.any(row[MC["target"]] == FOE_TARGETS)
+    flags = row[MC["flags"]]
+    ctx = ctx._replace(mid=mid, is_status=is_status, targets_foe=targets_foe)
+    aims_called = targets_foe | (row[MC["target"]] == TARGET_ID["all"]) | ((flags & FLAG_BIT["mustpressure"]) > 0)
+    extra_pp = called & aims_called & (st.ability[o, tslot] == ABILITY.pressure) & target_alive
+    st = st.replace(
+        pp=st.pp.at[s, slot, move_slot].set(
+            jnp.where(extra_pp, jnp.maximum(_i(st.pp[s, slot, move_slot]) - 1, 0), st.pp[s, slot, move_slot]).astype(
+                jnp.int8
+            )
+        )
+    )
+
     # Targeting, then the move's own failure conditions
     no_target = targets_foe & ~target_alive
-    fails = no_target
-    fails |= targets_foe & blocked_by_psychic_terrain(mid, combatant(st, o), field_info(st, o))
+    fails = no_target | call_fails
+    fails |= targets_foe & blocked_by_psychic_terrain(
+        mid, combatant(st, o), field_info(st, o), MOVES[base_mid, MC["priority"]]
+    )
     fails |= (mid == MID["auroraveil"]) & (st.weather != SNOW)
     is_protect = STALLING[mid]
     stall_den = jnp.array([1, 3, 9, 27, 81, 243, 729])[jnp.minimum(st.protect_count[s], 6)]

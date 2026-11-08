@@ -47,6 +47,10 @@ HANDWRITTEN_MOVES = {
     "banefulbunker", "endure",
     # M3 charge_moves family
     "outrage", "meteorbeam", "solarbeam", "solarblade", "phantomforce", "hyperbeam",
+    # M3 call_moves family
+    "sleeptalk",
+    # M3 trapping family
+    "magmastorm", "whirlpool", "firespin", "infestation", "meanlook", "block", "jawlock", "noretreat",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",

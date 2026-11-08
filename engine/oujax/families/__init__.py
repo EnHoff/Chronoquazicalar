@@ -4,4 +4,4 @@ abilities and has its own test file (engine/oujax/families/test_<name>.py). Add 
 module and importing it here.
 """
 
-from engine.oujax.families import charge_moves, damage_moves, move_misc, volatiles  # noqa: F401
+from engine.oujax.families import call_moves, charge_moves, damage_moves, move_misc, trapping, volatiles  # noqa: F401

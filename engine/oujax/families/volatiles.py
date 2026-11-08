@@ -296,7 +296,8 @@ def _after_move(st, ctx):
     keep = (mid == MID["destinybond"]) & ctx.landed
     st = set_vol(st, s, "destinybond", 0, acted & ~keep)
     st = set_vol(st, s, "move_actions", jnp.minimum(vol(st, s, "move_actions") + 1, 100), acted)
-    return set_vol(st, s, "last_move", mid, acted & ctx.moves)
+    # Pokemon.lastMove is the move chosen (Sleep Talk, not the move it called)
+    return set_vol(st, s, "last_move", ctx.base_mid, acted & ctx.moves)
 
 
 @hooks.hook("switch_in")

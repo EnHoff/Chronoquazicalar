@@ -9,7 +9,11 @@ take/return the state. Within an event, hooks run in descending priority, then r
 
 Events (arguments after the state; return value):
   before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent.
-                                                           Runs after sleep / freeze / flinch, before paralysis
+                                                           Showdown's BeforeMove priorities: above 10 run before
+                                                           sleep / freeze (recharge), the rest after sleep /
+                                                           freeze / flinch, before paralysis
+  call_move(st, ctx)                    -> (st, mid, fails)  the move used calls another one (Sleep Talk): after
+                                                           PP and Choice lock; mid 0 = no call
   move_fails(st, ctx)                   -> fails           the move fails after PP is spent (Sucker Punch, ...)
   try_move(st, ctx)                     -> (st, stop)      Showdown's TryMove: the move stops without failing
                                                            (charge turn of Solar Beam, ...)
@@ -59,7 +63,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
-    "locked_move", "override_move", "trapped",
+    "locked_move", "override_move", "trapped", "call_move", "grounded", "types",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
@@ -94,8 +98,11 @@ def residual(order: float, name: str = ""):
     return deco
 
 
-def handlers(event: str) -> List[Callable]:
-    return [fn for _, _, fn in _hooks.get(event, [])]
+def handlers(event: str, above=None, at_most=None) -> List[Callable]:
+    """Handlers for an event in run order; above / at_most select a priority range (exclusive / inclusive)."""
+    return [
+        fn for p, _, fn in _hooks.get(event, []) if (above is None or -p > above) and (at_most is None or -p <= at_most)
+    ]
 
 
 # Showdown volatile id -> fn(st, side) -> bool, compared by bridge.Mirror.diff for the active Pokemon
