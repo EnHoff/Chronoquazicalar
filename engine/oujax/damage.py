@@ -86,6 +86,12 @@ HAS_SECONDARIES = jnp.zeros(len(_MID), bool)
 for _m, _d in T.dex["moves"].items():
     if _d.get("secondaries"):
         HAS_SECONDARIES = HAS_SECONDARIES.at[_MID[_m]].set(True)
+# selfBoost (Scale Shot, Clanging Scales) runs after the hit loop's resolveFaints, where Gen 6+ battle.boost fails
+# once the user's foes have no Pokemon left; move.self boosts (Close Combat) run before faints resolve
+SELF_BOOST_AFTER_FAINTS = jnp.zeros(len(_MID), bool)
+for _m, _d in T.dex["moves"].items():
+    if _d.get("selfBoost"):
+        SELF_BOOST_AFTER_FAINTS = SELF_BOOST_AFTER_FAINTS.at[_MID[_m]].set(True)
 # Tera's 60 BP floor skips variable-power moves whose dex base power is 0 or 150 (Low Kick, Eruption, ...)
 NO_TERA_FLOOR = jnp.zeros(len(_MID), bool)
 for _m, _d in T.dex["moves"].items():

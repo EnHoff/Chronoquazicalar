@@ -26,6 +26,7 @@ from engine.oujax.damage import (
     M_1_5,
     M_2,
     MOVES,
+    SELF_BOOST_AFTER_FAINTS,
     Combatant,
     FieldInfo,
     blocked_by_psychic_terrain,
@@ -1107,7 +1108,9 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     helmet = connected & contact & ~hit_sub & (st.item[o, tslot] == ITEM.rockyhelmet)
     st = lose_hp(st, s, slot, maxhp // 6, helmet)
     # Self stat drops / raises from the move (Close Combat, Draco Meteor, ...)
-    st, _ = apply_boosts(st, s, boosts_of(mid, "self_boost_"), landed & ~sheer_force & (st.hp[s, slot] > 0))
+    no_foes_left = ~jnp.any(alive_mask(st)[o])
+    self_boost = landed & ~sheer_force & (st.hp[s, slot] > 0) & ~(SELF_BOOST_AFTER_FAINTS[mid] & no_foes_left)
+    st, _ = apply_boosts(st, s, boosts_of(mid, "self_boost_"), self_boost)
     # Secondary effect: one roll against the move's chance (100% effects always apply)
     if cfg.forced:
         sec_roll = jnp.int32(0 if cfg.secondaries else 99)
