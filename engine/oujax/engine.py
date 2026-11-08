@@ -131,6 +131,10 @@ SPECIAL = {
         "substitute partingshot teleport chillyreception haze auroraveil toxic thunder blizzard knockoff"
     ).split()
 }
+# Protect-family moves: PROTECTS block moves for the rest of the turn; STALLING moves share Protect's stall counter
+_PROTECT_IDS = [MID[n] for n in ("protect", "detect", "banefulbunker", "spikyshield")]
+PROTECTS = jnp.zeros(len(MID), bool).at[jnp.array(_PROTECT_IDS)].set(True)
+STALLING = PROTECTS.at[MID["endure"]].set(True)
 
 
 class Config(NamedTuple):
@@ -144,6 +148,7 @@ class Config(NamedTuple):
     full_para: bool = False
     thaw: bool = False
     stall: bool = True
+    confusion_hit: bool = False
 
 
 class MoveCtx(NamedTuple):
@@ -160,6 +165,7 @@ class MoveCtx(NamedTuple):
     is_status: jnp.ndarray
     targets_foe: jnp.ndarray
     foe_pending_move: jnp.ndarray  # move id the target will still use this turn after this one, 0 if none
+    acting: jnp.ndarray = jnp.bool_(False)  # this is the user's action this turn (it may still be blocked)
     moves: jnp.ndarray = jnp.bool_(False)  # the user gets to move (past sleep, paralysis, flinch, ...)
     proceeds: jnp.ndarray = jnp.bool_(False)  # ... and the move didn't fail before its accuracy check
     landed: jnp.ndarray = jnp.bool_(False)  # the move connected with its target (or succeeded, if self-targeted)
@@ -355,6 +361,8 @@ def eat_sitrus(st: Battle, s):
     slot = act(st, s)
     hp, maxhp = _i(st.hp[s, slot]), _i(st.stats[s, slot, 0])
     eat = (st.item[s, slot] == ITEM.sitrusberry) & (hp > 0) & (hp * 2 <= maxhp)
+    for h in hooks.handlers("can_heal"):
+        eat = eat & h(st, s, slot)  # Sitrus Berry's onTryEatItem: not eaten while healing is blocked
     st = gain_hp(st, s, slot, maxhp // 4, eat)
     return st.replace(item=st.item.at[s, slot].set(jnp.where(eat, 0, st.item[s, slot])))
 
@@ -598,7 +606,10 @@ def do_switches(st: Battle, wants, targets, key, cfg: Config):
     """Switch both sides' Pokemon simultaneously-chosen switches: the faster side switches (and runs its entry
     effects) first."""
     k_order, k0, k1 = jax.random.split(key, 3)
-    spe = jnp.stack([action_speed(st, 0), action_speed(st, 1)])
+    # Leads (nobody active yet) run their entry effects in the order of their own speed
+    lead = st.active < 0
+    st_spe = st.replace(active=jnp.where(lead, targets, st.active).astype(st.active.dtype))
+    spe = jnp.stack([action_speed(st_spe, 0), action_speed(st_spe, 1)])
     first0 = p1_first(k_order, jnp.zeros(2, jnp.int32), spe, cfg)
     order = jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
     keys = (k0, k1)
@@ -641,7 +652,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     flags = row[MC["flags"]]
     ctx = MoveCtx(
         s=s, o=o, slot=slot, tslot=tslot, mid=mid, move_slot=move_slot, key=keys[12], cfg=cfg,
-        is_status=is_status, targets_foe=targets_foe, foe_pending_move=_i(foe_pending_move),
+        is_status=is_status, targets_foe=targets_foe, foe_pending_move=_i(foe_pending_move), acting=user_alive,
     )  # fmt: skip
 
     # BeforeMove: sleep and freeze, flinch, full paralysis
@@ -661,10 +672,11 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     )
     blocked = (asleep & ~wakes) | ((status == FRZ) & ~thaws)
     blocked |= st.flinch[s]
-    blocked |= (status == PAR) & chance(keys[1], 1, 4, cfg.full_para, cfg)
     for h in hooks.handlers("before_move"):
         st, b = h(st, ctx._replace(moves=user_alive & ~blocked))
         blocked |= b
+    # Paralysis has the lowest BeforeMove priority (1), after confusion (3), Taunt (5), ...
+    blocked |= (status == PAR) & chance(keys[1], 1, 4, cfg.full_para, cfg)
     moves = user_alive & ~blocked
     ctx = ctx._replace(moves=moves)
 
@@ -674,7 +686,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # flagged mustpressure (Stealth Rock, Spikes, Toxic Spikes)
     aims_at_foe = targets_foe | (row[MC["target"]] == TARGET_ID["all"]) | ((flags & FLAG_BIT["mustpressure"]) > 0)
     pressure = aims_at_foe & (st.ability[o, tslot] == ABILITY.pressure) & target_alive
-    pp_cost = jnp.where(struggle, 0, 1 + pressure.astype(jnp.int32))
+    # A locked move (Outrage's later turns, a charge move's attack turn) spends no PP
+    pp_cost = jnp.where(struggle | (locked_slot(st, s) >= 0), 0, 1 + pressure.astype(jnp.int32))
     st = st.replace(
         pp=st.pp.at[s, slot, move_slot].set(
             jnp.where(moves, jnp.maximum(_i(st.pp[s, slot, move_slot]) - pp_cost, 0), st.pp[s, slot, move_slot]).astype(
@@ -700,7 +713,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     fails = no_target
     fails |= targets_foe & blocked_by_psychic_terrain(mid, combatant(st, o), field_info(st, o))
     fails |= (mid == MID["auroraveil"]) & (st.weather != SNOW)
-    is_protect = (mid == SPECIAL["protect"]) | (mid == SPECIAL["detect"])
+    is_protect = STALLING[mid]
     stall_den = jnp.array([1, 3, 9, 27, 81, 243, 729])[jnp.minimum(st.protect_count[s], 6)]
     # No chain yet: Showdown runs no stall roll at all, so the first Protect always works
     stall_roll = (st.protect_count[s] == 0) | chance(keys[2], 1, stall_den, cfg.stall, cfg)
@@ -728,7 +741,11 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     for h in hooks.handlers("move_fails"):
         fails |= h(st, ctx)
     st = st.replace(protect_used=st.protect_used.at[s].set(st.protect_used[s] | (moves & is_protect)))
-    proceeds = moves & ~fails
+    stopped = jnp.bool_(False)
+    for h in hooks.handlers("try_move"):
+        st, b = h(st, ctx._replace(proceeds=moves & ~fails & ~stopped))
+        stopped |= b
+    proceeds = moves & ~fails & ~stopped
 
     # Protect blocks moves with the protect flag aimed at the target
     blocked_by_protect = targets_foe & st.protected[o] & ((flags & FLAG_BIT["protect"]) > 0)
@@ -821,17 +838,19 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     st = after_damage(st, s, mid, landed & ~is_status, dealt, hit_sub, keys[10], cfg)
     for h in hooks.handlers("after_hit"):
         st = h(st, ctx._replace(landed=landed & ~is_status), dealt, hit_sub)
+    # Berries wait for the move's secondaries (Psychic Noise's Heal Block stops Sitrus Berry)
+    st = eat_sitrus(eat_sitrus(st, o), s)
     st, pivot_ok = status_phase(st, s, mid, landed & is_status, keys[11], cfg)
     for h in hooks.handlers("status_move"):
         st = h(st, ctx._replace(landed=landed & is_status))
-    st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & is_protect)))
+    st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & PROTECTS[mid])))
 
     # Pivot: damaging pivots switch if they connected; status pivots per status_phase
     self_switch = row[MC["self_switch"]] > 0
     pivot = self_switch & jnp.where(is_status, pivot_ok, landed) & (st.hp[s, slot] > 0) & bench_available(st, s)
     st = set_vol(st, s, "moved", 1, enabled)
     # Not getting to move (sleep, full paralysis, flinch) counts as a failure for Stomping Tantrum
-    result = jnp.where(landed | (proceeds & is_status & ~targets_foe), 1, jnp.where(not_fail, 0, 2))
+    result = jnp.where(landed | (proceeds & is_status & ~targets_foe), 1, jnp.where(not_fail | stopped, 0, 2))
     st = set_vol(st, s, "move_result", result, user_alive)
     for h in hooks.handlers("after_move"):
         st = h(st, ctx)
@@ -954,8 +973,8 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         d = jnp.where(row[MC["fixed_damage"]] == -1, _i(st.level[s, act(st, s)]), d)
         if ctx is not None:
             # Hooks adjust damage to the Pokemon itself (Focus Sash, ...), not to its Substitute
-            for h in hooks.handlers("damage_taken"):
-                st, d_mon = h(st, ctx._replace(landed=go & ~sub_now), o, d)
+            for hk in hooks.handlers("damage_taken"):
+                st, d_mon = hk(st, ctx._replace(landed=go & ~sub_now), o, d)
                 d = jnp.where(sub_now, d, d_mon)
         berry = go & berry
         to_sub = jnp.minimum(d, _i(st.sub_hp[o]))
@@ -1042,7 +1061,7 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     struggle_recoil = landed & (mid == STRUGGLE)
     st = lose_hp(st, s, slot, js_round_div(maxhp, 4), struggle_recoil)
     st = lose_hp(st, s, slot, maxhp // 10, landed & ~sheer_force & (st.item[s, slot] == ITEM.lifeorb))
-    return eat_sitrus(eat_sitrus(st, o), s)
+    return st
 
 
 def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
@@ -1088,7 +1107,7 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
         self_sleep=st.self_sleep.at[s, slot].set(jnp.where(rest, True, st.self_sleep[s, slot])),
     )
     # Protect counter, Substitute
-    is_protect = (mid == MID["protect"]) | (mid == MID["detect"])
+    is_protect = STALLING[mid]
     st = st.replace(
         protect_count=st.protect_count.at[s].set(
             jnp.where(landed & is_protect, st.protect_count[s] + 1, st.protect_count[s]).astype(jnp.int8)
@@ -1295,12 +1314,15 @@ def legal_actions(st: Battle):
         benched = slots != slot
         rank = jnp.cumsum(benched) - 1
         sw = jnp.stack([jnp.any(benched & (rank == n) & alive) for n in range(5)])
-        # Moves: PP left, Choice lock, Assault Vest bans status moves, family restrictions
+        # Moves: PP left, Choice lock, Assault Vest bans status moves, family restrictions; a locked move
+        # (Outrage, charge / recharge turns) is the single move action 0, with no Tera and no switching
+        locked = locked_slot(st, s) >= 0
         mv = move_mask(st, s)
-        struggle = ~jnp.any(mv)
-        mv = jnp.where(struggle, jnp.arange(4) == 0, mv)  # move action 0 = Struggle
-        tera = mv & ~st.tera_used[s] & ~struggle
-        move_req = jnp.concatenate([mv, tera, sw])
+        struggle = ~jnp.any(mv) & ~locked
+        mv = jnp.where(struggle | locked, jnp.arange(4) == 0, mv)  # move action 0 = Struggle
+        tera = mv & ~st.tera_used[s] & ~struggle & ~locked
+        # Being locked or trapped only stops switching by choice, not pivot switches or faint replacements
+        move_req = jnp.concatenate([mv, tera, sw & ~locked & ~trapped(st, s)])
         switch_req = jnp.concatenate([jnp.zeros(8, bool), sw])
         # Sides without a decision this step get a single no-op action (index 0)
         noop = jnp.zeros(N_ACTIONS, bool).at[0].set(True)
@@ -1336,7 +1358,23 @@ def move_mask(st: Battle, s):
 
 
 def struggling(st: Battle, s):
-    return ~jnp.any(move_mask(st, s))
+    return ~jnp.any(move_mask(st, s)) & (locked_slot(st, s) < 0)
+
+
+def locked_slot(st: Battle, s):
+    """Move slot side s's active Pokemon is locked into (locked_move hooks), -1 if none."""
+    slot = jnp.int32(-1)
+    for h in hooks.handlers("locked_move"):
+        slot = jnp.maximum(slot, _i(h(st, s)))
+    return slot
+
+
+def trapped(st: Battle, s):
+    """Side s's active Pokemon can't switch out by choice (trapped hooks)."""
+    out = jnp.bool_(False)
+    for h in hooks.handlers("trapped"):
+        out = out | h(st, s)
+    return out
 
 
 # --- step ------------------------------------------------------------------------------------------
@@ -1376,6 +1414,8 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     uses_move = jnp.where(in_move, ~is_switch_action, resuming & (st.queued_action >= 0))
     move_slot = jnp.where(move_action >= A_TERA, move_action - A_TERA, move_action)
     move_slot = jnp.clip(move_slot, 0, 3)
+    lock = jnp.stack([locked_slot(st, 0), locked_slot(st, 1)])
+    move_slot = jnp.where(lock >= 0, lock, move_slot)
     struggle = jnp.stack([struggling(st, 0), struggling(st, 1)])
     move_ids = jnp.stack([jnp.where(struggle[s], STRUGGLE, _i(st.moves[s, act(st, s), move_slot[s]])) for s in (0, 1)])
     prio = jnp.stack([_i(MOVES[move_ids[s], MC["priority"]]) for s in (0, 1)])
@@ -1396,7 +1436,10 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
         go = uses_move[s] & (pivot_side < 0) & ~decided_now
         last = ~(uses_move[o] & (i == 0))
         foe_pending = jnp.where((i == 0) & uses_move[o], move_ids[o], 0)
-        st, pivot = run_move(st, s, move_slot[s], struggle[s], go, last, keys[2 + i], cfg, foe_pending)
+        ms = move_slot[s]
+        for h in hooks.handlers("override_move"):
+            ms = jnp.where(struggle[s], ms, h(st, s, ms))
+        st, pivot = run_move(st, s, ms, struggle[s], go, last, keys[2 + i], cfg, foe_pending)
         pivot = go & pivot
         # A pivot suspends the turn: remember the other side's move if it still has to act
         queued = jnp.where(pivot & (i == 0) & uses_move[o], queued.at[o].set(move_action[o]), queued)

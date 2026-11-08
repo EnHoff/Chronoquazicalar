@@ -8,8 +8,16 @@ Hooks are plain Python functions traced into the jitted step: they must be branc
 take/return the state. Within an event, hooks run in descending priority, then registration order.
 
 Events (arguments after the state; return value):
-  before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent
+  before_move(st, ctx)                  -> (st, blocked)   user can't act (confusion, ...); before PP is spent.
+                                                           Runs after sleep / freeze / flinch, before paralysis
   move_fails(st, ctx)                   -> fails           the move fails after PP is spent (Sucker Punch, ...)
+  try_move(st, ctx)                     -> (st, stop)      Showdown's TryMove: the move stops without failing
+                                                           (charge turn of Solar Beam, ...)
+  locked_move(st, side)                 -> slot            move slot the Pokemon must use (Outrage, charge and
+                                                           recharge turns), -1 if none: a single legal move
+                                                           action, no Tera, no switching, no PP spent
+  override_move(st, side, move_slot)    -> move_slot       the move actually used when the turn comes (Encore)
+  trapped(st, side)                     -> trapped         can't switch out by choice (partial trapping, ...)
   try_hit(st, ctx)                      -> (st, blocked)   Showdown's TryHit step: after Protect, before type
                                                            immunity and accuracy (absorbing abilities);
                                                            ctx.landed = the move reaches the target
@@ -50,7 +58,8 @@ from typing import Callable, Dict, List, Tuple
 EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
-    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
+    "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
+    "locked_move", "override_move", "trapped",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
@@ -89,6 +98,20 @@ def handlers(event: str) -> List[Callable]:
     return [fn for _, _, fn in _hooks.get(event, [])]
 
 
+# Showdown volatile id -> fn(st, side) -> bool, compared by bridge.Mirror.diff for the active Pokemon
+SHOWDOWN_VOLATILES: Dict[str, Callable] = {}
+
+
+def showdown_volatile(name: str):
+    """Decorator: fn(st, side) says whether side's active Pokemon has Showdown's volatile `name`."""
+
+    def deco(fn):
+        SHOWDOWN_VOLATILES[name] = fn
+        return fn
+
+    return deco
+
+
 def residual_handlers() -> List[Tuple[float, str, Callable]]:
     return [(order, name, fn) for order, _, name, fn in _residual]
 
@@ -118,7 +141,7 @@ SIDE = SlotRegistry("side")  # Battle.side_ex (2, N) int16
 FIELD = SlotRegistry("field")  # Battle.field_ex (N,) int16
 
 # Room reserved so states created before every family is imported still have the right shape
-VOL_SIZE, MON_SIZE, SIDE_SIZE, FIELD_SIZE = 48, 16, 24, 8
+VOL_SIZE, MON_SIZE, SIDE_SIZE, FIELD_SIZE = 64, 16, 24, 8
 
 
 def check_sizes():

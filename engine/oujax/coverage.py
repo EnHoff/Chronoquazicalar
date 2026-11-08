@@ -40,6 +40,13 @@ HANDWRITTEN_MOVES = {
     "psychicfangs", "clearsmog", "highjumpkick", "supercellslam", "axekick", "steelbeam", "grassyglide", "growth",
     "bellydrum", "clangoroussoul", "takeheart", "tidyup", "healbell", "strengthsap", "bleakwindstorm",
     "wildboltstorm", "sandsearstorm",
+    # M3 volatiles family
+    "hurricane", "strangesteam", "waterpulse", "psychicnoise", "saltcure", "swagger", "taunt", "encore", "throatchop", "curse", "leechseed", "destinybond",
+    # M3 move_misc family
+    "suckerpunch", "thunderclap", "upperhand", "fakeout", "firstimpression", "icespinner", "spikyshield",
+    "banefulbunker", "endure",
+    # M3 charge_moves family
+    "outrage", "meteorbeam", "solarbeam", "solarblade", "phantomforce", "hyperbeam",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
@@ -53,7 +60,7 @@ SUPPORTED_SIDE_CONDITIONS = {
     "tailwind",
 }
 SUPPORTED_VOLATILES = {"", "protect", "substitute"}
-SUPPORTED_SECONDARY_VOLATILES = {"", "flinch"}
+SUPPORTED_SECONDARY_VOLATILES = {"", "flinch", "confusion", "healblock", "saltcure"}
 SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
