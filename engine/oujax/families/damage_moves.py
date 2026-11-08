@@ -149,10 +149,10 @@ def _status(st, ctx):
     st, _ = apply_boosts(st, s, jnp.array([1, 0, 1, 0, 0, 0, 0]), ok & _is(ctx.mid, "growth") & (st.weather == SUN))
     # Belly Drum: half max HP for +12 Attack
     drum = ok & _is(ctx.mid, "bellydrum")
-    st = lose_hp(st, s, slot, maxhp // 2, drum)
+    st = lose_hp(st, s, slot, maxhp // 2, drum, direct=True)
     st, _ = apply_boosts(st, s, jnp.array([12, 0, 0, 0, 0, 0, 0]), drum)
     # Clangorous Soul: a third of max HP (the table applied the +1s)
-    st = lose_hp(st, s, slot, maxhp * 33 // 100, ok & _is(ctx.mid, "clangoroussoul"))
+    st = lose_hp(st, s, slot, maxhp * 33 // 100, ok & _is(ctx.mid, "clangoroussoul"), direct=True)
     # Take Heart: cure status, +1 SpA / SpD
     heart = ok & _is(ctx.mid, "takeheart")
     st = st.replace(status=st.status.at[s, slot].set(jnp.where(heart, 0, st.status[s, slot])))

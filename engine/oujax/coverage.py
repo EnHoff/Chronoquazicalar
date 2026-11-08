@@ -40,6 +40,8 @@ HANDWRITTEN_MOVES = {
     "psychicfangs", "clearsmog", "highjumpkick", "supercellslam", "axekick", "steelbeam", "grassyglide", "growth",
     "bellydrum", "clangoroussoul", "takeheart", "tidyup", "healbell", "strengthsap", "bleakwindstorm",
     "wildboltstorm", "sandsearstorm",
+    # M3 ability families
+    "skillswap",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",

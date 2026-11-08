@@ -35,7 +35,17 @@ ABILITY = _ns(
     "rockypayload waterbubble solarpower adaptability tintedlens sniper liquidvoice multiscale shadowshield filter "
     "solidrock prismarmor fluffy icescales thickfat heatproof purifyingsalt furcoat vesselofruin tabletsofruin "
     "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator compoundeyes hustle "
-    "victorystar noguard keeneye mindseye superluck skilllink",
+    "victorystar noguard keeneye mindseye superluck skilllink "
+    # M3 ability families (engine/oujax/families/*_abilities.py)
+    "neutralizinggas trace dauntlessshield intimidate download windrider libero protean illusion hospitality "
+    "goodasgold waterabsorb voltabsorb flashfire sapsipper dryskin motordrive wellbakedbody eartheater magicbounce "
+    "bulletproof soundproof overcoat raindish prankster galewings triage "
+    "contrary clearbody whitesmoke fullmetalbody bigpecks hypercutter mirrorarmor guarddog defiant competitive "
+    "rattled moxie chillingneigh grimneigh battlebond speedboost unburden weakarmor justified "
+    "static flamebody roughskin gooey tanglinghair effectspore poisontouch toxicchain toxicdebris cursedbody "
+    "gulpmissile pickpocket magician berserk synchronize shielddust serenegrace shellarmor battlearmor "
+    "magicguard poisonheal baddreams hydration shedskin healer sturdy disguise leafguard limber magnetpull "
+    "rockhead liquidooze stickyhold corrosion gluttony",
 )
 MOVE = _ns(
     T.move_ids,

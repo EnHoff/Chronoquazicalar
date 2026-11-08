@@ -85,6 +85,7 @@ class Combatant(NamedTuple):
     stellar_used: jnp.ndarray = 0  # bitmask of move types that already got their Stellar Tera boost
     hp: jnp.ndarray = -1  # current HP; -1 = full
     fallen: jnp.ndarray = 0  # Supreme Overlord: fainted teammates counted on switch-in (0..5)
+    flashfire: jnp.ndarray = False  # Flash Fire activated (1.5x Fire attacks while it keeps the ability)
 
 
 class FieldInfo(NamedTuple):
@@ -357,6 +358,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     a = chain_if(a, (att.ability == ABILITY.waterbubble) & (mtype == TY["water"]), M_2)
     a = chain_if(a, ~physical & (att.ability == ABILITY.solarpower) & (field.weather == WEATHER_SUN), M_1_5)
     a = chain_if(a, att.paradox_stat == event_stat, M_1_3)
+    a = chain_if(a, att.flashfire & (att.ability == T.ability_ids["flashfire"]) & (mtype == TY["fire"]), M_1_5)
     a = chain_if(a, physical & (att.item == ITEM.choiceband), M_1_5)  # 1
     a = chain_if(a, ~physical & (att.item == ITEM.choicespecs), M_1_5)
     a = chain_if(

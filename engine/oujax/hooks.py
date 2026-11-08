@@ -13,8 +13,8 @@ Events (arguments after the state; return value):
   try_hit(st, ctx)                      -> (st, blocked)   Showdown's TryHit step: after Protect, before type
                                                            immunity and accuracy (absorbing abilities);
                                                            ctx.landed = the move reaches the target
-  damaging_hit(st, ctx, hit, dmg)       -> st              once per hit that damaged the target itself (not its
-                                                           Substitute); ctx.landed = that happened (Static, ...)
+  damaging_hit(st, ctx, hit, dmg)       -> st              once per hit on the target itself (not its Substitute),
+                                                           even for 0 damage (Disguise); ctx.landed = that happened
   move_try_hit(st, ctx)                 -> st              the move's own onTryHit: after accuracy and immunity,
                                                            before a Substitute or damage (Brick Break)
   damage_taken(st, ctx, side, dmg)      -> (st, dmg)       adjust a hit's damage to the target (Focus Sash, ...)
@@ -35,6 +35,18 @@ Events (arguments after the state; return value):
   damage_override(st, ctx, dmg)         -> dmg             replace a hit's damage (Counter, Endeavor, ...)
   crit_stage(st, ctx, stage)            -> stage           critical-hit stage (Focus Energy, ...)
   accuracy(st, ctx, acc)                -> acc             accuracy before stages; 101 means "always hits"
+  enter(st, side, slot, cond)           -> st              a Pokemon was just put on the field, before hazards and
+                                                           entry abilities (restore its ability, suppress it, ...)
+  after_boost(st, side, old, new, raw, from_foe, depth) -> st  after stat stages changed (old/new (7,) stages, raw =
+                                                           the requested deltas before boost_change hooks);
+                                                           apply_boosts runs these only while depth < 2
+  reflect(st, ctx)                      -> (st, reflected, lands)  before TryHit: the target bounces the move back
+                                                           (Magic Bounce); lands = the bounced move connects
+  after_status(st, side, slot, status, from_foe, key, cfg, applied) -> st  after try_set_status (Synchronize)
+  secondaries(st, s, mid, chance)       -> (chance, blocked)  the move's secondary-effect chance, and whether the
+                                                           target is shielded from it (Serene Grace, Shield Dust)
+  indirect_damage(st, side, slot)       -> allowed         non-move damage through lose_hp (Magic Guard)
+  trapped(st, side)                     -> trapped         side can't switch out by choice (Magnet Pull, ...)
 
 ctx is a MoveCtx (see engine.py): user side s, target side o, their team slots, move id, move slot, keys, cfg,
 and flags about the move (category, landed, ...).
@@ -51,6 +63,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
+    "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage", "trapped",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)
