@@ -28,12 +28,19 @@ Events (arguments after the state; return value):
   legal_moves(st, side, mask)           -> mask            (4,) bool move legality (Encore, Taunt, ...)
   speed(st, side, mod)                  -> mod             4096-based Speed modifier chain
   priority(st, side, mid, prio)         -> prio
-  fractional_priority(st, side, mid, prio, cond, key) -> (st, first)  moves first within its priority bracket
-                                                           (Quick Claw, Custap Berry); cond = side uses a move
+  fractional_priority(st, side, mid, prio, cond, key, cfg) -> (st, first)  moves first within its priority
+                                                           bracket (Quick Claw, Custap Berry); cond = side chose a
+                                                           move this turn (decided once, when the turn starts)
   after_boost(st, side, applied, cond)  -> st              after stat stages changed; applied = (7,) actual changes
   item_update(st, side)                 -> st              Showdown's Update for side's active Pokemon: berries and
                                                            herbs that react to HP, status, PP or stages (runs
                                                            wherever the engine checks Sitrus Berry)
+  terrain_change(st, cond)              -> st              Showdown's TerrainChange, after a terrain was set (seeds)
+  secondaries_blocked(st, s, o)         -> blocked         ModifySecondaries: side o's Pokemon ignores the secondary
+                                                           effects of side s's move (Covert Cloak, Shield Dust)
+  drain_heal(st, s, amount)             -> amount          HP a drain move restores to side s (Big Root)
+  charge_move(st, ctx)                  -> (st, skip)      ChargeMove: a two-turn move skips its charge turn (Power
+                                                           Herb); for the charge-move family to call
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
   boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
@@ -58,7 +65,8 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
-    "fractional_priority", "after_boost", "item_update", "switch_in_slot",
+    "fractional_priority", "after_boost", "item_update", "switch_in_slot", "terrain_change", "secondaries_blocked",
+    "drain_heal", "charge_move",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

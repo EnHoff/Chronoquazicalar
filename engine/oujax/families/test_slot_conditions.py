@@ -60,6 +60,13 @@ class TestSlotConditions(MirrorScenarios, unittest.TestCase):
         script = [(0, 0), (0, 2), (2, 3), (1, 1), (0, 1), (8, 2), (0, 8), (1, 2)]
         self.play(team(SLOWKING_LO, PEX), team(CORV, CLEF), script)
 
+    def test_doom_desire(self):
+        # Doom Desire hits two turns later as a Steel move from its user's current state
+        jirachi = mon("Jirachi", "Leftovers", "Serene Grace", ["Doom Desire", "Iron Head", "Protect", "U-turn"],
+                      evs="252 HP / 252 SpA / 4 SpD", nature="Modest", tera="Steel")  # fmt: skip
+        script = [(0, 0), (0, 2), (2, 0), (1, 3), (0, 0)]
+        self.play(team(jirachi, PEX), team(CLEF, TUSK), script)
+
     def test_future_sight_fails_while_pending_and_dark_immunity(self):
         self.play(team(SLOWKING_LO, PEX), team(GAMBIT_SD, TUSK), [(0, 0), (0, 2), (0, 3), (2, 2)])
 

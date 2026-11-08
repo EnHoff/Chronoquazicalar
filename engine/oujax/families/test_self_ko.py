@@ -31,6 +31,12 @@ class TestSelfKO(MirrorScenarios, unittest.TestCase):
         script = [(0, 0), (3, 3), (1, 1), (3, 2), (0, 2), (0, 3), (2, 8), (0, 0), (0, 8)]
         self.play(team(WEEZ, GLIM, TUSK_FG), team(GAMBIT_SUB, GHOLDENGO), script)
 
+    def test_self_destruct(self):
+        # Self-Destruct faints its user even though the target survives it
+        boom = mon("Glimmora", "Leftovers", "Toxic Debris", ["Self-Destruct", "Spikes", "Protect", "Earth Power"],
+                   tera="Ghost")  # fmt: skip
+        self.play(team(boom, TUSK_FG), team(GAMBIT_SUB, GHOLDENGO), [(0, 0), (0, 2), (1, 2)])
+
     def test_memento_and_explosion_into_substitute(self):
         # Memento fails into a Substitute and into Protect (the user stays); Explosion breaks the Substitute;
         # Memento that lands faints the user

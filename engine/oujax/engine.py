@@ -173,6 +173,7 @@ class MoveCtx(NamedTuple):
     acc_base: jnp.ndarray = jnp.int32(101)  # accuracy before ModifyAccuracy and stages
     acc_chain: jnp.ndarray = jnp.int32(4096)  # ModifyAccuracy modifier
     acc_stage: jnp.ndarray = jnp.int32(0)  # accuracy minus evasion stage, clipped
+    missed: jnp.ndarray = jnp.bool_(False)  # the accuracy check failed (not immunity or Protect): Blunder Policy
 
 
 # Core per-turn bookkeeping used by several families (claimed here, before any family module)
@@ -394,6 +395,15 @@ def status_immune(st: Battle, s, slot, status):
     )
 
 
+def secondaries_blocked(st: Battle, s, o):
+    """ModifySecondaries on side o's active Pokemon: the foe's move loses its secondary effects on it (Covert
+    Cloak, Shield Dust); effects on the move's user (secondary.self) still apply."""
+    blocked = jnp.bool_(False)
+    for h in hooks.handlers("secondaries_blocked"):
+        blocked = blocked | h(st, s, o)
+    return blocked
+
+
 def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True, cond=True):
     """Pokemon.trySetStatus with Showdown's status immunities, terrain blocks and Sleep Clause.
     Returns (state, applied)."""
@@ -504,6 +514,8 @@ def set_terrain(st: Battle, terrain, s, slot, cond):
         terrain=jnp.where(ok, terrain, st.terrain).astype(jnp.int8),
         terrain_turns=jnp.where(ok, turns, st.terrain_turns).astype(jnp.int8),
     )
+    for h in hooks.handlers("terrain_change"):
+        st = h(st, ok)
     return refresh_paradox(st), ok
 
 
@@ -603,7 +615,7 @@ def run_switch_in(st: Battle, s, key, cfg: Config, cond):
     st, _ = try_set_status(st, s, slot, jnp.where(hz[HAZ_TSPIKES] >= 2, TOX, PSN), key, cfg, from_foe=True, cond=poison)
     # Sticky Web
     webs = cond & (hz[HAZ_WEBS] > 0) & gr & ~boots & (st.hp[s, slot] > 0)
-    st, _ = apply_boosts(st, s, jnp.array([0, 0, 0, 0, -1, 0, 0]), webs)
+    st, _ = apply_boosts(st, s, jnp.array([0, 0, 0, 0, -1, 0, 0]), webs, from_foe=True)  # source: the foe
     st = eat_sitrus(st, s)
     # Ability: weather / terrain setters
     alive = cond & (st.hp[s, slot] > 0)
@@ -887,7 +899,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
-    ctx = ctx._replace(landed=landed)
+    ctx = ctx._replace(landed=landed, missed=proceeds_hit & ~hits & ~immune)
     for h in hooks.handlers("move_try_hit"):
         st = h(st, ctx)
 
@@ -1097,7 +1109,10 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     connected = landed & (dealt > 0)
     # Drain
     drain = (row[MC["drain_num"]] > 0) & connected
-    st = gain_hp(st, s, slot, js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]]), drain)
+    drained = js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]])
+    for h in hooks.handlers("drain_heal"):
+        drained = h(st, s, drained)
+    st = gain_hp(st, s, slot, drained, drain)
     # Sheer Force drops the move's secondary effects (and its self effects) and Life Orb recoil
     sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & (
         (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
@@ -1111,11 +1126,11 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
         sec_roll = jax.random.randint(key, (), 0, 100)
     k_status = jax.random.fold_in(key, 1)
     sec = landed & ~sheer_force & (row[MC["sec_chance"]] > 0) & (sec_roll < row[MC["sec_chance"]])
-    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0)
+    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0) & ~secondaries_blocked(st, s, o)
     st, _ = try_set_status(
         st, o, tslot, row[MC["sec_status"]], k_status, cfg, cond=on_target & (row[MC["sec_status"]] > 0)
     )
-    st, _ = apply_boosts(st, o, boosts_of(mid, "sec_boost_"), on_target)
+    st, _ = apply_boosts(st, o, boosts_of(mid, "sec_boost_"), on_target, from_foe=True)
     st = st.replace(flinch=st.flinch.at[o].set(st.flinch[o] | (on_target & (row[MC["sec_volatile"]] == VOL["flinch"]))))
     st, _ = apply_boosts(st, s, boosts_of(mid, "sec_self_boost_"), sec & (st.hp[s, slot] > 0))
     # Knock Off removes a removable item (the user must still be standing)
@@ -1156,7 +1171,7 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     deltas = boosts_of(mid, "boost_")
     deltas = jnp.where(mid == MID["partingshot"], jnp.array([-1, 0, -1, 0, 0, 0, 0]), deltas)
     st, _ = apply_boosts(st, s, deltas, landed & targets_self)
-    st, foe_boosted = apply_boosts(st, o, deltas, hits_foe & (st.hp[o, tslot] > 0))
+    st, foe_boosted = apply_boosts(st, o, deltas, hits_foe & (st.hp[o, tslot] > 0), from_foe=True)
     # Status conditions
     st, _ = try_set_status(st, o, tslot, row[MC["status"]], key, cfg, cond=hits_foe & (row[MC["status"]] > 0))
     # Healing: fixed fractions, weather-dependent heals, Roost, Rest
@@ -1220,7 +1235,9 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     # Defog: -1 evasion to the target (its onHit; a substitute blocks it), then clear hazards on both sides,
     # screens on the target's side, and terrain
     defog = landed & (mid == MID["defog"])
-    st, _ = apply_boosts(st, o, jnp.array([0, 0, 0, 0, 0, 0, -1]), defog & ~blocked_sub & (st.hp[o, tslot] > 0))
+    st, _ = apply_boosts(
+        st, o, jnp.array([0, 0, 0, 0, 0, 0, -1]), defog & ~blocked_sub & (st.hp[o, tslot] > 0), from_foe=True
+    )
     st = st.replace(
         hazards=jnp.where(defog, 0, st.hazards),
         screens=st.screens.at[o].set(jnp.where(defog, 0, st.screens[o])),
@@ -1485,7 +1502,7 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     frac = jnp.zeros(2, jnp.int32)
     for h in hooks.handlers("fractional_priority"):
         for s in (0, 1):
-            st, first = h(st, s, move_ids[s], prio[s], uses_move[s] & ~suspended, keys[5])
+            st, first = h(st, s, move_ids[s], prio[s], in_move & uses_move[s], jax.random.fold_in(keys[5], s), cfg)
             frac = frac.at[s].set(jnp.maximum(frac[s], first.astype(jnp.int32)))
     spe = jnp.stack([action_speed(st, 0), action_speed(st, 1)])
     first0 = p1_first(keys[1], prio * 2 + frac, spe, cfg)

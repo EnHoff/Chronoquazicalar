@@ -46,6 +46,18 @@ HANDWRITTEN_MOVES = {
     "wish", "healingwish", "lunardance", "futuresight", "doomdesire", "revivalblessing",
     # M3 self_ko family
     "explosion", "selfdestruct", "mistyexplosion", "memento", "finalgambit", "painsplit",
+    # M3 item_moves / berries families
+    "trick", "switcheroo", "thief", "ceaselessedge", "stoneaxe", "bugbite",
+}  # fmt: skip
+# Items implemented by mechanic families (engine/oujax/families/), each tested against Showdown
+HANDWRITTEN_ITEMS = {
+    # held_items
+    "focussash", "toxicorb", "flameorb", "stickybarb", "weaknesspolicy", "throatspray", "blunderpolicy", "covertcloak",
+    "clearamulet", "bigroot", "protectivepads", "quickclaw", "custapberry",
+    # berries
+    "lumberry", "chestoberry", "leppaberry", "salacberry", "keeberry",
+    # herbs_seeds
+    "whiteherb", "mirrorherb", "grassyseed", "electricseed", "psychicseed", "mistyseed",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
@@ -63,7 +75,9 @@ SUPPORTED_SECONDARY_VOLATILES = {"", "flinch"}
 SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
-SUPPORTED_ITEMS = {"", *(k for k in vars(ITEM)), *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"]}
+SUPPORTED_ITEMS = {
+    "", *(k for k in vars(ITEM)), *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"], *HANDWRITTEN_ITEMS
+}
 SUPPORTED_ABILITIES = {*(k for k in vars(ABILITY)), *INERT_ABILITIES}
 
 

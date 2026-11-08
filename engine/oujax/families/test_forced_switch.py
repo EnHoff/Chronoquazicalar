@@ -50,6 +50,15 @@ class TestForcedSwitch(MirrorScenarios, unittest.TestCase):
         script = [(0, 0), (0, 0), (1, 2), (2, 0), (3, 1), (3, 0)]
         self.play(team(CORV_PHAZE, PEX), team(PEX_ROAR, TUSK, GHOLDENGO), script)
 
+    def test_circle_throw(self):
+        # Circle Throw drags in the first benched Pokemon in Showdown's order; not when it only hits a Substitute
+        thrower = mon("Hariyama", "Leftovers", "Thick Fat", ["Circle Throw", "Bullet Punch", "Knock Off", "Bulk Up"],
+                      evs=WALL, nature="Impish", tera="Fighting")  # fmt: skip
+        gambit_sub = mon("Kingambit", "Leftovers", "Pressure", ["Substitute", "Kowtow Cleave", "Swords Dance",
+                         "Protect"], tera="Dark")  # fmt: skip
+        script = [(0, 0), (1, 0), (0, 1), (0, 1), (0, 1)]
+        self.play(team(thrower, PEX), team(gambit_sub, PEX_ROAR, TUSK), script)
+
     def test_whirlwind_fails_without_a_bench(self):
         self.play(team(GHOLDENGO, PEX), team(TUSK), [(0, 0), (2, 1), (2, 0)])
 

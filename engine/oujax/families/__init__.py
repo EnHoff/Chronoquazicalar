@@ -5,9 +5,12 @@ module and importing it here.
 """
 
 from engine.oujax.families import (
+    berries,  # noqa: F401
     damage_moves,  # noqa: F401
     forced_switch,  # noqa: F401
     held_items,  # noqa: F401
+    herbs_seeds,  # noqa: F401
+    item_moves,  # noqa: F401
     self_ko,  # noqa: F401
     slot_conditions,  # noqa: F401
 )

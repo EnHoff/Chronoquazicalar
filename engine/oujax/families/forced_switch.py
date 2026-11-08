@@ -14,7 +14,7 @@ Not modelled here: drag-out immunities (Suction Cups, Guard Dog, Ingrain) belong
 import jax.numpy as jnp
 
 from engine.oujax import hooks
-from engine.oujax.effects import ITEM
+from engine.oujax.effects import ABILITY, ITEM
 from engine.oujax.engine import (
     MID,
     MOVES,
@@ -32,6 +32,14 @@ hooks.VOL.add("eject_pack")  # a stat drop is waiting to trigger the Eject Pack
 
 def _drags(mid):
     return MOVES[mid, MC["force_switch"]] > 0
+
+
+def suppressing_secondaries(st, ctx):
+    """Battle.suppressingSecondaries: a Sheer Force user's move that had secondaries skips AfterMoveSecondary
+    (Eject Button, Red Card, ...) and AfterMoveSecondarySelf (Life Orb, Shell Bell)."""
+    row = MOVES[ctx.mid]
+    has_sec = (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)
+    return has_sec & (st.ability[ctx.s, ctx.slot] == ABILITY.sheerforce)
 
 
 def _no_true_flag(st):
@@ -62,7 +70,8 @@ def _after_hit(st, ctx, dealt, hit_sub):
     # Dragon Tail / Circle Throw (spreadMoveHit step 6, before the target's items react)
     drag = hit & _drags(ctx.mid) & user_up & target_up & bench_available(st, o)
     st = set_side_ex(st, o, "drag_flag", 1, drag)
-    # AfterMoveSecondary: Eject Button (priority 2) before Red Card
+    # AfterMoveSecondary: Eject Button (priority 2) before Red Card; skipped under Sheer Force
+    hit &= ~suppressing_secondaries(st, ctx)
     dragged = (side_ex(st, o, "drag_flag") > 0) | (side_ex(st, s, "drag_flag") > 0)
     eject = hit & target_up & (st.item[o, tslot] == ITEM.ejectbutton) & bench_available(st, o)
     eject &= (side_ex(st, o, "drag_flag") == 0) & _no_true_flag(st)
