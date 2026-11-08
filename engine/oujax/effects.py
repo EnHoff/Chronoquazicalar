@@ -24,7 +24,9 @@ ITEM = _ns(
     "leftovers blacksludge lifeorb choiceband choicespecs choicescarf boosterenergy heavydutyboots "
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
-    "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice",
+    "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
+    # M3 forced_switch family
+    "ejectbutton redcard ejectpack",
 )
 ABILITY = _ns(
     T.ability_ids,

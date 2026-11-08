@@ -22,11 +22,18 @@ Events (arguments after the state; return value):
   status_move(st, ctx)                  -> st              extra effects of a landed status move
   after_move(st, ctx)                   -> st              after any move resolution, whether it landed or not
   switch_in(st, side, key, cfg, cond)   -> st              entry effects after hazards and built-in abilities
+  switch_in_slot(st, side, key, cfg, cond) -> st           slot conditions on entry, before hazards (Healing Wish)
   switch_out(st, side, cond)            -> st              leaving the field, before volatiles reset
   residual(order)(st, key, cfg, cond)   -> st              end-of-turn effect at Showdown's onResidualOrder
   legal_moves(st, side, mask)           -> mask            (4,) bool move legality (Encore, Taunt, ...)
   speed(st, side, mod)                  -> mod             4096-based Speed modifier chain
   priority(st, side, mid, prio)         -> prio
+  fractional_priority(st, side, mid, prio, cond, key) -> (st, first)  moves first within its priority bracket
+                                                           (Quick Claw, Custap Berry); cond = side uses a move
+  after_boost(st, side, applied, cond)  -> st              after stat stages changed; applied = (7,) actual changes
+  item_update(st, side)                 -> st              Showdown's Update for side's active Pokemon: berries and
+                                                           herbs that react to HP, status, PP or stages (runs
+                                                           wherever the engine checks Sitrus Berry)
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
   boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
@@ -51,6 +58,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit",
+    "fractional_priority", "after_boost", "item_update", "switch_in_slot",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

@@ -4,4 +4,10 @@ abilities and has its own test file (engine/oujax/families/test_<name>.py). Add 
 module and importing it here.
 """
 
-from engine.oujax.families import damage_moves  # noqa: F401
+from engine.oujax.families import (
+    damage_moves,  # noqa: F401
+    forced_switch,  # noqa: F401
+    held_items,  # noqa: F401
+    self_ko,  # noqa: F401
+    slot_conditions,  # noqa: F401
+)

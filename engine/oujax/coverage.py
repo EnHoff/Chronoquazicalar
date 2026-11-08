@@ -40,6 +40,12 @@ HANDWRITTEN_MOVES = {
     "psychicfangs", "clearsmog", "highjumpkick", "supercellslam", "axekick", "steelbeam", "grassyglide", "growth",
     "bellydrum", "clangoroussoul", "takeheart", "tidyup", "healbell", "strengthsap", "bleakwindstorm",
     "wildboltstorm", "sandsearstorm",
+    # M3 forced_switch family
+    "roar", "whirlwind", "dragontail", "circlethrow",
+    # M3 slot_conditions family
+    "wish", "healingwish", "lunardance", "futuresight", "doomdesire", "revivalblessing",
+    # M3 self_ko family
+    "explosion", "selfdestruct", "mistyexplosion", "memento", "finalgambit", "painsplit",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",
