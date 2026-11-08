@@ -111,8 +111,15 @@ class TestVolatiles(MirrorScenarios, unittest.TestCase):
 
     def test_parting_shot_lowers_stats_and_switches(self):
         # Parting Shot's drops are in onHit, not the boosts field; the user only switches if they land
-        pech = mon("Pecharunt", "Heavy-Duty Boots", "Poison Puppeteer",
-                   ["Parting Shot", "Shadow Ball", "Recover", "Foul Play"], evs=WALL, nature="Bold", tera="Poison")
+        pech = mon(
+            "Pecharunt",
+            "Heavy-Duty Boots",
+            "Poison Puppeteer",
+            ["Parting Shot", "Shadow Ball", "Recover", "Foul Play"],
+            evs=WALL,
+            nature="Bold",
+            tera="Poison",
+        )
         self.play(team(GAMBIT, PEX), team(pech, CORV), [(0, 0), (0, 0)])
 
     def test_destiny_bond(self):
