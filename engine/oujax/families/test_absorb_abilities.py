@@ -60,6 +60,9 @@ TORKOAL = mon("Torkoal", "Heat Rock", "Drought", ["Stealth Rock", "Flamethrower"
 TYRAN = mon("Tyranitar", "Leftovers", "Sand Stream", ["Stone Edge", "Knock Off", "Stealth Rock", "Protect"],
             tera="Ghost")  # fmt: skip
 
+GASTRODON = mon("Gastrodon", "Leftovers", "Storm Drain", ["Earth Power", "Recover", "Scald", "Ice Beam"], evs=SWALL,
+                nature="Calm", tera="Poison")  # fmt: skip
+
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
 class TestAbsorbAbilities(AbilityScenarios, unittest.TestCase):
@@ -91,6 +94,10 @@ class TestAbsorbAbilities(AbilityScenarios, unittest.TestCase):
         # Dry Skin heals 1/8 in rain and loses 1/8 in sun; Rain Dish heals 1/16 in rain
         script = [(0, 0), (3, 0), (0, 0), (8, 8), (0, 0), (0, 0)]
         self.play(team(PELIPPER_DISH, TOXICROAK), team(TOXICROAK, TORKOAL), script)
+
+    def test_storm_drain(self):
+        # Storm Drain absorbs Water moves for +1 SpA
+        self.play(team(MEW, ZAPDOS), team(GASTRODON, CLODSIRE), [(0, 0), (0, 0), (0, 1)])
 
 
 if __name__ == "__main__":

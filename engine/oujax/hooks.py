@@ -60,6 +60,8 @@ Events (arguments after the state; return value):
   secondaries(st, s, mid, chance)       -> (chance, blocked)  the move's secondary-effect chance, and whether the
                                                            target is shielded from it (Serene Grace, Shield Dust)
   indirect_damage(st, side, slot)       -> allowed         non-move damage through lose_hp (Magic Guard)
+  volatile_immune(st, side, name)       -> immune          side's active Pokemon can't get the volatile `name` (a
+                                                           Python string such as "confusion"; Own Tempo)
   accuracy_mod(st, ctx, mod)            -> mod             4096-based ModifyAccuracy chain, before abilities and
                                                            items (Gravity)
   grounded(st, s, slot)                 -> air             1: grounded regardless (Gravity, Smack Down); 2: airborne
@@ -83,7 +85,7 @@ EVENTS = {
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
     "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod", "hit_count",
-    "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage",
+    "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage", "volatile_immune",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

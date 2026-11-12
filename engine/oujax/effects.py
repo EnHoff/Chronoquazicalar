@@ -25,7 +25,8 @@ ITEM = _ns(
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
     "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
-    "powerherb",
+    "powerherb "
+    "clearamulet",  # M3 stat_abilities (blocks stat drops from the foe)
 )
 ABILITY = _ns(
     T.ability_ids,
@@ -47,7 +48,7 @@ ABILITY = _ns(
     "static flamebody roughskin gooey tanglinghair effectspore poisontouch toxicchain toxicdebris cursedbody "
     "gulpmissile pickpocket magician berserk synchronize shielddust serenegrace shellarmor battlearmor "
     "magicguard poisonheal baddreams hydration shedskin healer sturdy disguise leafguard limber magnetpull "
-    "rockhead liquidooze stickyhold corrosion gluttony",
+    "rockhead liquidooze stickyhold corrosion gluttony innerfocus oblivious owntempo scrappy stormdrain",
 )
 MOVE = _ns(
     T.move_ids,

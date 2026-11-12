@@ -2,7 +2,8 @@
 engine/oujax/families/stat_abilities.py
 Abilities that change stat stages or move priority:
 - ChangeBoost / TryBoost (boost_change): Contrary; Clear Body, White Smoke, Full Metal Body, Big Pecks, Hyper
-  Cutter, Keen Eye, Mind's Eye and Mirror Armor block drops from the foe; Guard Dog turns Intimidate into +1 Atk.
+  Cutter, Keen Eye, Mind's Eye, Mirror Armor and the item Clear Amulet block drops from the foe; Guard Dog turns
+  Intimidate into +1 Atk; Inner Focus, Oblivious, Own Tempo and Scrappy ignore Intimidate.
 - AfterEachBoost / AfterBoost (after_boost): Defiant / Competitive (+2 per stat the foe lowered), Mirror Armor
   (bounces the blocked drops to the foe), Rattled (+1 Spe after Intimidate).
 - Moxie, Chilling Neigh, Grim Neigh, Battle Bond (Greninja-Bond, once per battle) after a KO with a move.
@@ -40,6 +41,7 @@ from engine.oujax.tables import FLAG_BIT, MC
 
 TY = T.type_ids
 GRENINJA_BOND = T.species_ids.get("greninjabond", -1)
+CLEAR_AMULET = T.item_ids["clearamulet"]
 
 hooks.MON.add("bond_used")  # Battle Bond already boosted this battle
 hooks.VOL.add("koed")  # this move knocked the target out (Moxie, ...)
@@ -57,6 +59,10 @@ _BLOCKS = {
     "keeneye": jnp.arange(7) == 5,
     "mindseye": jnp.arange(7) == 5,
 }
+
+
+def clear_amulet(st, s):
+    return st.item[s, jnp.maximum(act(st, s), 0)] == CLEAR_AMULET
 
 
 @hooks.hook("boost_change", priority=10)
@@ -78,6 +84,13 @@ def _block_drops(st, s, deltas, from_foe):
         mask = mask | ((ab == AB[name]) & stats)
     # A drop Mirror Armor already bounced isn't bounced (or blocked) again
     mask &= ~((ab == AB["mirrorarmor"]) & (field_ex(st, "boost_src") == BOOST_MIRROR))
+    # Inner Focus, Oblivious, Own Tempo and Scrappy ignore Intimidate
+    intim = is_ab(ab, "innerfocus", "oblivious", "owntempo", "scrappy") & (
+        field_ex(st, "boost_src") == BOOST_INTIMIDATE
+    )
+    mask |= intim & (jnp.arange(7) == 0)
+    # Clear Amulet (an item, so Mold Breaker doesn't matter) blocks every drop from the foe
+    mask |= clear_amulet(st, s)
     return jnp.where(jnp.asarray(from_foe) & mask & (deltas < 0), 0, deltas)
 
 
@@ -109,6 +122,7 @@ def _after_boost(st, s, old, new, raw, from_foe, depth):
     mirror = (
         from_foe
         & (eff_ability(st, s) == AB["mirrorarmor"])
+        & ~clear_amulet(st, s)  # Clear Amulet's TryBoost runs first and leaves nothing to bounce
         & (src != BOOST_MIRROR)
         & jnp.any(reflected < 0)
         & on_field(st, o)

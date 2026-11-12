@@ -8,6 +8,7 @@ Abilities that guard the holder or act at the end of the turn:
 - Magnet Pull: the foe's Steel types can't switch out by choice (not Ghosts, not with Shed Shell).
 - Bad Dreams (sleeping foes lose 1/8), Hydration (cured in rain), Shed Skin (33% cure; never in forced mode,
   where the harness answers that roll with false).
+- Own Tempo can't be confused; Inner Focus can't flinch (both also ignore Intimidate: stat_abilities.py).
 Healer only affects allies (inert in singles). Gluttony only changes pinch berries other than Sitrus (inert
 until those berries exist).
 """
@@ -121,3 +122,21 @@ def _bad_dreams(st, key, cfg, cond):
         st = lose_hp(st, o, oslot, _i(st.stats[o, oslot, 0]) // 8, hits)
         st = eat_sitrus(st, o)
     return st
+
+
+# --- volatile immunities ---------------------------------------------------------------------------------
+
+
+@hooks.hook("volatile_immune")
+def _own_tempo(st, s, name):
+    if name != "confusion":
+        return jnp.bool_(False)
+    return eff_ability(st, s) == AB["owntempo"]
+
+
+@hooks.hook("after_hit", priority=-100)
+def _inner_focus(st, ctx, dealt, hit_sub):
+    # Inner Focus: onTryAddVolatile('flinch') -> null; runs after every hook that can make the target flinch
+    o = ctx.o
+    keep = st.flinch[o] & (eff_ability(st, o) != AB["innerfocus"])
+    return st.replace(flinch=st.flinch.at[o].set(keep))

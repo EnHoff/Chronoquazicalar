@@ -170,6 +170,13 @@ def boosted_stat(stat, boost):
     return jnp.where(b >= 0, stat * num // 2, stat * 2 // num)
 
 
+def scrappy_types(def_types, move_type, att_ability):
+    """Scrappy / Mind's Eye (ignoreImmunity Normal and Fighting): those moves treat a Ghost type as neutral."""
+    scrappy = (att_ability == T.ability_ids["scrappy"]) | (att_ability == T.ability_ids["mindseye"])
+    hits = scrappy & ((move_type == TY["normal"]) | (move_type == TY["fighting"]))
+    return jnp.where(hits & (def_types == TY["ghost"]), TYPE_NONE, def_types)
+
+
 def type_effectiveness(move_type, def_types, move_id=None):
     """(immune, typeMod) as Pokemon.runImmunity / runEffectiveness for a typed move (Freeze-Dry treats Water
     as weak)."""
@@ -329,7 +336,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     att_types, def_types = current_types(att), current_types(dfn)
     att_hp = current_hp(att)
 
-    immune, type_mod = type_effectiveness(mtype, def_types, move_id)
+    immune, type_mod = type_effectiveness(mtype, scrappy_types(def_types, mtype, att.ability), move_id)
     # Ground immunity is Pokemon.isGrounded alone (Gravity, Smack Down ground a Flying type: neutral there)
     is_ground = mtype == TY["ground"]
     immune = jnp.where(is_ground, ~is_grounded(dfn), immune)

@@ -3,10 +3,11 @@ engine/oujax/families/absorb_abilities.py
 Abilities that stop a move at TryHit (after Protect, before type immunity and accuracy), all breakable:
 - Good as Gold (the foe's status moves), Bulletproof, Soundproof, Overcoat (powder moves);
 - Water Absorb, Volt Absorb, Dry Skin, Earth Eater (heal 1/4), Flash Fire (1.5x Fire attacks until it leaves),
-  Sap Sipper, Motor Drive, Well-Baked Body, Wind Rider (stat boost);
+  Sap Sipper, Storm Drain, Motor Drive, Well-Baked Body, Wind Rider (stat boost);
 - Magic Bounce: reflectable status moves (hazards too) are used back at the user. The bounced move re-checks
   accuracy, type immunity and the user's own TryHit abilities; simplification: its accuracy ignores items and
   No Guard, and a bounced Parting Shot doesn't switch the bouncer out;
+- Oblivious: Taunt;
 - Prankster's status moves fail against Dark types (Showdown's TryImmunity step; here a TryHit block).
 Also Dry Skin's and Rain Dish's weather effects at the end of the turn.
 """
@@ -35,6 +36,7 @@ from engine.oujax.families.entry_abilities import AB, ability, eff_ability, is_a
 from engine.oujax.tables import FLAG_BIT, MC, TARGET_ID
 
 TY = T.type_ids
+MID_TAUNT = T.move_ids["taunt"]
 
 
 def _absorb(st, ctx):
@@ -55,14 +57,16 @@ def _absorb(st, ctx):
     st = set_vol(st, o, "flashfire", 1, reach & flash)
     sap, motor = grass & (ab == AB["sapsipper"]), elec & (ab == AB["motordrive"])
     baked, rider = fire & (ab == AB["wellbakedbody"]), wind & (ab == AB["windrider"])
-    deltas = jnp.stack([sap | rider, 2 * baked, 0, 0, motor, 0, 0]).astype(jnp.int32)
-    boost = sap | motor | baked | rider
+    drain = water & (ab == AB["stormdrain"])
+    deltas = jnp.stack([sap | rider, 2 * baked, drain, 0, motor, 0, 0]).astype(jnp.int32)
+    boost = sap | motor | baked | rider | drain
     st, _ = apply_boosts(st, o, deltas, reach & boost)
     blocked = heal | flash | boost
     blocked |= ctx.is_status & (ab == AB["goodasgold"])
     blocked |= ((flags & FLAG_BIT["bullet"]) > 0) & (ab == AB["bulletproof"])
     blocked |= ((flags & FLAG_BIT["sound"]) > 0) & (ab == AB["soundproof"])
     blocked |= ((flags & FLAG_BIT["powder"]) > 0) & (ab == AB["overcoat"])
+    blocked |= (ctx.mid == MID_TAUNT) & (ab == AB["oblivious"])  # Oblivious: Taunt (and Attract) don't affect it
     return st, reach & blocked
 
 

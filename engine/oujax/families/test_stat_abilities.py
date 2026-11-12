@@ -58,6 +58,21 @@ DRAGAPULT = mon("Dragapult", "Leftovers", "Clear Body", ["Dragon Darts", "U-turn
 COMFEY = mon("Comfey", "Leftovers", "Triage", ["Draining Kiss", "Calm Mind", "Synthesis", "Giga Drain"], evs=SWALL,
              nature="Calm", tera="Fairy")  # fmt: skip
 
+INTIMIDATOR = mon("Landorus-Therian", "Leftovers", "Intimidate", ["Swagger", "Taunt", "Fake Out", "Close Combat"],
+                  tera="Water")  # fmt: skip
+OWN_TEMPO = mon("Mudsdale", "Leftovers", "Own Tempo", ["Body Press", "Earthquake", "Protect", "Stealth Rock"],
+                evs=WALL, nature="Impish", tera="Water")  # fmt: skip
+OBLIVIOUS = mon("Slowbro", "Leftovers", "Oblivious", ["Scald", "Slack Off", "Protect", "Psychic"], evs=WALL,
+                nature="Bold", tera="Water")  # fmt: skip
+INNER_FOCUS = mon("Lucario", "Leftovers", "Inner Focus", ["Close Combat", "Meteor Mash", "Swords Dance", "Protect"],
+                  evs=WALL, nature="Impish", tera="Normal")  # fmt: skip
+SCRAPPY = mon("Ursaluna", "Leftovers", "Scrappy", ["Body Slam", "Close Combat", "Protect", "Earthquake"],
+              evs=WALL, nature="Impish", tera="Normal")  # fmt: skip
+AMULET = mon("Kingambit", "Clear Amulet", "Pressure", ["Iron Head", "Kowtow Cleave", "Swords Dance", "Protect"],
+             tera="Dark")  # fmt: skip
+GHOLDENGO = mon("Gholdengo", "Leftovers", "Good as Gold", ["Make It Rain", "Shadow Ball", "Nasty Plot", "Recover"],
+                evs="252 HP / 4 Def / 252 SpD", nature="Calm", tera="Steel")  # fmt: skip
+
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
 class TestStatAbilities(AbilityScenarios, unittest.TestCase):
@@ -100,6 +115,19 @@ class TestStatAbilities(AbilityScenarios, unittest.TestCase):
         # Gale Wings: Flying moves +1 priority at full HP only; Triage: healing moves +3
         script = [(0, 0), (0, 0), (8, 8), (0, 0), (8, 8), (0, 0)]
         self.play(team(TALONFLAME, COMFEY), team(DRAGAPULT, GAMBIT), script)
+
+    def test_intimidate_blockers(self):
+        # Intimidate fails on Own Tempo (which also ignores Swagger's confusion), Oblivious (immune to Taunt),
+        # Inner Focus (doesn't flinch from Fake Out), Scrappy and a Clear Amulet holder
+        self.play(team(INTIMIDATOR, PEX), team(OWN_TEMPO, PEX), [(0, 0), (0, 0), (0, 0)])
+        self.play(team(INTIMIDATOR, PEX), team(OBLIVIOUS, PEX), [(0, 0), (1, 0), (0, 0)])
+        self.play(team(INTIMIDATOR, PEX), team(INNER_FOCUS, PEX), [(0, 0), (2, 0)])
+        self.play(team(INTIMIDATOR, PEX), team(SCRAPPY, PEX), [(0, 0), (3, 0)])
+        self.play(team(INTIMIDATOR, PEX), team(AMULET, PEX), [(0, 0), (3, 0)])
+
+    def test_scrappy_hits_ghosts(self):
+        # Scrappy's Normal and Fighting moves hit Ghost types
+        self.play(team(GHOLDENGO, PEX), team(SCRAPPY, PEX), [(0, 0), (0, 0), (0, 1)])
 
 
 if __name__ == "__main__":

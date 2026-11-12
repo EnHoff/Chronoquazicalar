@@ -39,6 +39,7 @@ from engine.oujax.damage import (
     modify,
     move_category,
     move_type_and_bp,
+    scrappy_types,
     type_effectiveness,
 )
 from engine.oujax.effects import ABILITY, BREAKABLE, ITEM, ITEM_REMOVABLE, T
@@ -941,7 +942,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Type immunity (damaging moves, and status moves that respect it like Thunder Wave)
     t_types = types_now(st, o, tslot)
     mtype, _ = move_type_and_bp(mid, combatant(st, s), combatant(st, o), _i(st.weather))
-    immune, _ = type_effectiveness(mtype, t_types, mid)
+    immune, _ = type_effectiveness(mtype, scrappy_types(t_types, mtype, st.ability[s, slot]), mid)
     # Levitate doesn't keep a Mold Breaker-type attacker's Ground moves off
     breaks_levitate = ignores_abilities_ab(st.ability[s, slot]) & (st.ability[o, tslot] == ABILITY.levitate)
     breaks_levitate &= air_state(st, o, tslot) != 2  # Magnet Rise keeps it up regardless
