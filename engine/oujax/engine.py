@@ -280,6 +280,12 @@ def bench_available(st: Battle, s):
     return jnp.any(alive_mask(st)[s] & (slots != act(st, s)))
 
 
+def move_targets_foe(st: Battle, s, slot, mid):
+    """The move aims at the foe; a non-Ghost's Curse targets the user (Curse's onModifyMove)."""
+    self_curse = (mid == MID["curse"]) & ~has_type(types_now(st, s, slot), TY["ghost"])
+    return jnp.any(MOVES[mid, MC["target"]] == FOE_TARGETS) & ~self_curse
+
+
 def types_now(st: Battle, s, slot):
     """Current types of a Pokemon: Tera type once Terastallized, minus Flying while roosting (active only)."""
     base = st.base_types[s, slot].astype(jnp.int32)
@@ -683,7 +689,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     row = MOVES[mid]
     category = row[MC["category"]]
     is_status = category == 2
-    targets_foe = jnp.any(row[MC["target"]] == FOE_TARGETS)
+    targets_foe = move_targets_foe(st, s, slot, mid)
     flags = row[MC["flags"]]
     ctx = MoveCtx(
         s=s, o=o, slot=slot, tslot=tslot, mid=mid, move_slot=move_slot, key=keys[12], cfg=cfg,
@@ -762,7 +768,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     row = MOVES[mid]
     category = row[MC["category"]]
     is_status = category == 2
-    targets_foe = jnp.any(row[MC["target"]] == FOE_TARGETS)
+    targets_foe = move_targets_foe(st, s, slot, mid)
     flags = row[MC["flags"]]
     ctx = ctx._replace(mid=mid, is_status=is_status, targets_foe=targets_foe)
     aims_called = targets_foe | (row[MC["target"]] == TARGET_ID["all"]) | ((flags & FLAG_BIT["mustpressure"]) > 0)
