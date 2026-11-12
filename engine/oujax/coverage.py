@@ -76,7 +76,11 @@ SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
 SUPPORTED_ITEMS = {
-    "", *(k for k in vars(ITEM)), *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"], *HANDWRITTEN_ITEMS
+    "",
+    *(k for k in vars(ITEM)),
+    *ITEM_EFFECTS["type_boost_items"],
+    *ITEM_EFFECTS["resist_berries"],
+    *HANDWRITTEN_ITEMS,
 }
 SUPPORTED_ABILITIES = {*(k for k in vars(ABILITY)), *INERT_ABILITIES}
 

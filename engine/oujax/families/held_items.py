@@ -41,7 +41,9 @@ from engine.oujax.tables import FLAG_BIT, MC
 _ids = T.item_ids
 FOCUS_SASH, TOXIC_ORB, FLAME_ORB, STICKY_BARB = (_ids[n] for n in ("focussash", "toxicorb", "flameorb", "stickybarb"))
 WEAKNESS_POLICY, THROAT_SPRAY, BLUNDER_POLICY = (_ids[n] for n in ("weaknesspolicy", "throatspray", "blunderpolicy"))
-COVERT_CLOAK, CLEAR_AMULET, BIG_ROOT, PADS = (_ids[n] for n in ("covertcloak", "clearamulet", "bigroot", "protectivepads"))
+COVERT_CLOAK, CLEAR_AMULET, BIG_ROOT, PADS = (
+    _ids[n] for n in ("covertcloak", "clearamulet", "bigroot", "protectivepads")
+)
 QUICK_CLAW, CUSTAP = _ids["quickclaw"], _ids["custapberry"]
 
 # Moves with fixed damage (move.damage) or a damageCallback: Weakness Policy ignores them
@@ -137,7 +139,9 @@ def _after_move_items(st, ctx):
     s, slot = ctx.s, ctx.slot
     alive = st.hp[s, slot] > 0
     # Throat Spray (AfterMoveSecondarySelf: the move succeeded; skipped under Sheer Force)
-    spray = ctx.landed & alive & (st.item[s, slot] == THROAT_SPRAY) & _sound(ctx.mid) & ~suppressing_secondaries(st, ctx)
+    spray = (
+        ctx.landed & alive & (st.item[s, slot] == THROAT_SPRAY) & _sound(ctx.mid) & ~suppressing_secondaries(st, ctx)
+    )
     st = take_item(st, s, slot, spray)
     st, _ = apply_boosts(st, s, jnp.array([0, 0, 1, 0, 0, 0, 0]), spray)
     # Blunder Policy (hitStepAccuracy: the move missed; OHKO moves excluded)

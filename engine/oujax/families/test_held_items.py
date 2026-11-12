@@ -33,7 +33,7 @@ def gambit(item, moves=("Kowtow Cleave", "Iron Head", "Swords Dance", "Protect")
     return mon("Kingambit", item, "Pressure", list(moves), evs=evs, tera="Dark")
 
 
-GLIM_SASH = mon("Glimmora", "Focus Sash", "Toxic Debris", ["Spikes", "Protect", "Earth Power", "Sludge Bomb"],
+GLIM_SASH = mon("Glimmora", "Focus Sash", "Corrosion", ["Spikes", "Protect", "Earth Power", "Sludge Bomb"],
                 evs="4 HP / 252 SpA / 252 Spe", nature="Timid", tera="Ghost")  # fmt: skip
 URSALUNA = mon("Ursaluna", "Flame Orb", "Guts", ["Facade", "Headlong Rush", "Protect", "Swords Dance"], tera="Normal")  # fmt: skip
 CORV_TOX = mon("Corviknight", "Toxic Orb", "Pressure", ["U-turn", "Roost", "Defog", "Brave Bird"], evs=WALL,
@@ -85,11 +85,21 @@ class TestHeldItems(MirrorScenarios, unittest.TestCase):
         # Clear Amulet switch-in ignores Sticky Web
         amulet = tusk("Clear Amulet", ("Headlong Rush", "Rapid Spin", "Close Combat", "Stealth Rock"))
         script = [(0, 0), (1, 0), (1, 3), (8, 1), (2, 2)]
-        self.play(team(amulet, amulet.replace("Great Tusk", "Tusk (Great Tusk)", 1), PEX), team(GAMBIT_PS, CORV), script)
+        self.play(
+            team(amulet, amulet.replace("Great Tusk", "Tusk (Great Tusk)", 1), PEX), team(GAMBIT_PS, CORV), script
+        )
 
     def test_throat_spray(self):
         # Hyper Voice into Protect doesn't use it; Hyper Voice that hits does (+1 SpA)
         self.play(team(BOLT_SPRAY, PEX), team(ZAPDOS, CORV), [(0, 0), (0, 3), (0, 1), (0, 1)])
+
+    def test_drain_before_rocky_helmet_and_into_substitute(self):
+        # Drain heals as the hit lands (spreadDamage), before Rocky Helmet's DamagingHit: at full HP it heals
+        # nothing, and the Helmet chip stays; into a Substitute it heals ceil(damage / 2)
+        drainer = tusk(None, ("Drain Punch", "Rapid Spin", "Knock Off", "Stealth Rock"))
+        sub = mon("Corv (Corviknight)", "Leftovers", "Pressure", ["Substitute", "Roost", "Defog", "Brave Bird"], evs=WALL,
+                  nature="Impish", tera="Dragon")  # fmt: skip
+        self.play(team(drainer, PEX), team(CORV, sub), [(0, 0), (0, 3), (0, 8), (0, 0), (0, 0)])
 
     def test_big_root(self):
         drainer = tusk("Big Root", ("Drain Punch", "Rapid Spin", "Knock Off", "Stealth Rock"))

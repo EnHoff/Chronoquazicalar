@@ -1060,8 +1060,8 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         d = jnp.where(row[MC["fixed_damage"]] == -1, _i(st.level[s, act(st, s)]), d)
         if ctx is not None:
             # Hooks adjust damage to the Pokemon itself (Focus Sash, ...), not to its Substitute
-            for h in hooks.handlers("damage_taken"):
-                st, d_mon = h(st, ctx._replace(landed=go & ~sub_now), o, d)
+            for hk in hooks.handlers("damage_taken"):
+                st, d_mon = hk(st, ctx._replace(landed=go & ~sub_now), o, d)
                 d = jnp.where(sub_now, d, d_mon)
         berry = go & berry
         to_sub = jnp.minimum(d, _i(st.sub_hp[o]))
@@ -1072,6 +1072,13 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         )
         to_mon = jnp.minimum(d, _i(st.hp[o, tslot]))
         st = set_hp(st, o, tslot, jnp.where(go & ~sub_now, _i(st.hp[o, tslot]) - to_mon, st.hp[o, tslot]))
+        # Drain heals as each hit lands, before DamagingHit (spreadDamage: rounded; a Substitute's onTryPrimaryHit:
+        # rounded up)
+        dr_num, dr_den = _i(row[MC["drain_num"]]), jnp.maximum(_i(row[MC["drain_den"]]), 1)
+        drained = jnp.where(sub_now, (to_sub * dr_num + dr_den - 1) // dr_den, js_round_div(to_mon * dr_num, dr_den))
+        for hk in hooks.handlers("drain_heal"):
+            drained = hk(st, s, drained)
+        st = gain_hp(st, s, act(st, s), drained, go & (dr_num > 0) & (drained > 0))
         # Air Balloon pops on any damaging hit, including one that only hits its Substitute (onAfterSubDamage)
         pop = go & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
         st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop | berry, 0, st.item[o, tslot])))
@@ -1107,12 +1114,6 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     row = MOVES[mid]
     maxhp = _i(st.stats[s, slot, 0])
     connected = landed & (dealt > 0)
-    # Drain
-    drain = (row[MC["drain_num"]] > 0) & connected
-    drained = js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]])
-    for h in hooks.handlers("drain_heal"):
-        drained = h(st, s, drained)
-    st = gain_hp(st, s, slot, drained, drain)
     # Sheer Force drops the move's secondary effects (and its self effects) and Life Orb recoil
     sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & (
         (row[MC["sec_chance"]] > 0) | (row[MC["sec_status"]] > 0)

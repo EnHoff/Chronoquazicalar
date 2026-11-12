@@ -41,7 +41,9 @@ class TestItemMoves(MirrorScenarios, unittest.TestCase):
         # (Great Tusk), but Raging Bolt (not tagged Paradox) can give it to Kingambit
         script = [(0, 0), (0, 3), (8, 1), (0, 2), (1, 8), (0, 0), (0, 8)]
         no_item = gambit(None, ("Kowtow Cleave", "Iron Head", "Swords Dance", "Substitute"))
-        energy = bolt("Booster Energy").replace("Raging Bolt", "Bolt (Raging Bolt)", 1).replace("Protosynthesis", "Pressure")
+        energy = (
+            bolt("Booster Energy").replace("Raging Bolt", "Bolt (Raging Bolt)", 1).replace("Protosynthesis", "Pressure")
+        )
         p1 = team(bolt(None), energy)
         p2 = team(no_item, TUSK.replace("Leftovers", "Sitrus Berry"))
         self.play(p1, p2, script)
