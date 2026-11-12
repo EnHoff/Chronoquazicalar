@@ -33,9 +33,9 @@ VALIANT_COMP = mon("Iron Valiant", "Leftovers", "Competitive", ["Moonblast", "Cl
                    evs=SPEC, nature="Timid", tera="Fairy")  # fmt: skip
 ZAMAZENTA = mon("Zamazenta", "Leftovers", "Dauntless Shield", ["Body Press", "Iron Defense", "Crunch", "Close Combat"],
                 evs=WALL, nature="Impish", tera="Steel")  # fmt: skip
-PORYGONZ = mon("Porygon-Z", "Leftovers", "Download", ["Tri Attack", "Shadow Ball", "Nasty Plot", "Protect"],
+PORYGONZ = mon("Porygon-Z", "Leftovers", "Download", ["Hyper Voice", "Shadow Ball", "Nasty Plot", "Protect"],
                evs=SPEC, nature="Timid", tera="Normal")  # fmt: skip
-PORYGON2 = mon("Porygon2", "Eviolite", "Trace", ["Tri Attack", "Recover", "Ice Beam", "Thunder Wave"], evs=WALL,
+PORYGON2 = mon("Porygon2", "Eviolite", "Trace", ["Body Slam", "Recover", "Ice Beam", "Thunder Wave"], evs=WALL,
                nature="Bold", tera="Ghost")  # fmt: skip
 WEEZING = mon("Weezing-Galar", "Leftovers", "Neutralizing Gas", ["Sludge Bomb", "Will-O-Wisp", "Protect", "Fire Blast"],
               evs=WALL, nature="Bold", tera="Steel")  # fmt: skip
@@ -97,9 +97,10 @@ class TestEntryAbilities(AbilityScenarios, unittest.TestCase):
         self.play(team(WEEZING, TYRAN), team(TUSK_BOOSTER, PELIPPER), script)
 
     def test_libero_and_protean(self):
-        # Type changes once per switch-in, also through Protect and into a miss-free status move; Tera stops it
-        script = [(0, 0), (0, 0), (1, 1), (8, 8), (0, 3), (4, 0), (2, 1)]
-        self.play(team(CINDERACE, PEX), team(MEOWSCARADA, CORV_MIRROR), script)
+        # Protean turns Dark for Knock Off and stays Dark for Triple Axel (once per switch-in); Libero turns Bug
+        # for U-turn, is Fire again after switching back in, and Tera stops it
+        script = [(0, 0), (8, 8), (1, 1), (8, 3), (5, 0)]
+        self.play(team(PEX, CINDERACE), team(CORV_MIRROR, MEOWSCARADA), script)
 
     def test_wind_rider(self):
         # Wind Rider absorbs Bleakwind Storm (+1 Atk) and gets +1 Atk when its side's Tailwind starts / on entry

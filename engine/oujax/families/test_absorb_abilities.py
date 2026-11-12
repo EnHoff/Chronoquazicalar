@@ -43,7 +43,7 @@ CLODSIRE_HAZ = mon("Clodsire", "Leftovers", "Unaware", ["Toxic", "Spikes", "Stea
                    nature="Careful", tera="Ground")  # fmt: skip
 TINGLU = mon("Ting-Lu", "Leftovers", "Vessel of Ruin", ["Thunder Wave", "Stealth Rock", "Earthquake", "Spikes"],
              evs=SWALL, nature="Careful", tera="Poison")  # fmt: skip
-KOMMO_BP = mon("Kommo-o", "Leftovers", "Bulletproof", ["Close Combat", "Clangorous Soul", "Iron Head", "Drain Punch"],
+KOMMO_BP = mon("Chesnaught", "Leftovers", "Bulletproof", ["Close Combat", "Wood Hammer", "Iron Head", "Drain Punch"],
                evs=PHYS, nature="Jolly", tera="Steel")  # fmt: skip
 KOMMO_SP = mon("Kommo-o", "Leftovers", "Soundproof", ["Close Combat", "Clangorous Soul", "Iron Head", "Drain Punch"],
                evs=PHYS, nature="Jolly", tera="Steel")  # fmt: skip
@@ -66,7 +66,7 @@ class TestAbsorbAbilities(AbilityScenarios, unittest.TestCase):
     def test_good_as_gold_and_prankster(self):
         # Prankster Thunder Wave / Will-O-Wisp into Good as Gold; Reflect still works; a Prankster status move
         # into a Dark type fails
-        script = [(0, 0), (0, 2), (3, 0), (1, 1), (8, 0), (0, 8), (3, 0)]
+        script = [(0, 0), (0, 2), (3, 3), (1, 3), (0, 8), (3, 0), (8, 0)]
         self.play(team(GRIMMSNARL, ZAPDOS), team(GHOLDENGO, GAMBIT), script)
 
     def test_absorbing_abilities(self):
@@ -84,7 +84,7 @@ class TestAbsorbAbilities(AbilityScenarios, unittest.TestCase):
     def test_bulletproof_soundproof_overcoat(self):
         # Bulletproof stops Shadow Ball / Sludge Bomb; Soundproof stops Hyper Voice; Overcoat stops Spore and
         # sand damage
-        script = [(0, 0), (0, 1), (0, 3), (8, 8), (0, 0), (0, 0), (8, 8), (2, 0), (0, 2)]
+        script = [(0, 0), (2, 1), (2, 1), (8, 8), (0, 0), (0, 0), (9, 9), (2, 0), (0, 10), (0, 0)]
         self.play(team(KOMMO_BP, KOMMO_SP, FORRETRESS), team(GHOLDENGO, SINGER, SPAMMER, TYRAN), script)
 
     def test_weather_abilities(self):

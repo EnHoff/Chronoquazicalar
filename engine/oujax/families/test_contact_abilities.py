@@ -38,7 +38,7 @@ GLIMMORA = mon("Glimmora", "Leftovers", "Toxic Debris", ["Power Gem", "Sludge Wa
                evs=WALL, nature="Bold", tera="Grass")  # fmt: skip
 OKIDOGI = mon("Okidogi", "Leftovers", "Toxic Chain", ["Drain Punch", "Knock Off", "Bulk Up", "Gunk Shot"],
               tera="Dark")  # fmt: skip
-SNEASLER = mon("Sneasler", "Leftovers", "Poison Touch", ["Close Combat", "Dire Claw", "Swords Dance", "Gunk Shot"],
+SNEASLER = mon("Sneasler", "Leftovers", "Poison Touch", ["Close Combat", "Poison Jab", "Swords Dance", "Gunk Shot"],
                evs=PHYS, nature="Jolly", tera="Fighting")  # fmt: skip
 COAT_DUST = mon("Volcarona", "Covert Cloak", "Swarm", ["Quiver Dance", "Fiery Dance", "Bug Buzz", "Giga Drain"],
                 evs=WALL, nature="Bold", tera="Water")  # fmt: skip
@@ -50,13 +50,13 @@ HOOPA = mon("Hoopa-Unbound", "", "Magician", ["Close Combat", "Psychic", "Gunk S
             nature="Jolly", tera="Dark")  # fmt: skip
 CORV = mon("Corviknight", "Rocky Helmet", "Pressure", ["U-turn", "Roost", "Defog", "Brave Bird"], evs=WALL,
            nature="Impish", tera="Dragon")  # fmt: skip
-DRAMPA = mon("Drampa", "Sitrus Berry", "Berserk", ["Draco Meteor", "Hyper Voice", "Fire Blast", "Roost"], evs=SPEC,
+DRAMPA = mon("Hydreigon", "Sitrus Berry", "Berserk", ["Draco Meteor", "Hyper Voice", "Fire Blast", "Roost"], evs=SPEC,
              nature="Modest", tera="Normal")  # fmt: skip
 MEW = mon("Mew", "Leftovers", "Synchronize", ["Psychic", "Will-O-Wisp", "Roost", "Thunder Wave"], evs=WALL,
           nature="Bold", tera="Psychic")  # fmt: skip
 STATUSER = mon("Clefable", "Leftovers", "Magic Guard", ["Thunder Wave", "Will-O-Wisp", "Moonblast", "Toxic"],
                evs=WALL, nature="Bold", tera="Steel")  # fmt: skip
-TOGEKISS = mon("Togekiss", "Leftovers", "Serene Grace", ["Crush Claw", "Diamond Storm", "Roost", "Nasty Plot"],
+TOGEKISS = mon("Clefable", "Leftovers", "Serene Grace", ["Crush Claw", "Diamond Storm", "Roost", "Nasty Plot"],
                evs=WALL, nature="Bold", tera="Steel")  # fmt: skip
 SHELL = mon("Cloyster", "Leftovers", "Shell Armor", ["Icicle Spear", "Rock Blast", "Protect", "Substitute"],
             evs=WALL, nature="Impish", tera="Ice")  # fmt: skip

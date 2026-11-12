@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 from engine.oujax import hooks
 from engine.oujax.damage import boosted_stat
+from engine.oujax.effects import ABILITY
 from engine.oujax.engine import (
     G_TERRAIN,
     MID,
@@ -168,7 +169,10 @@ def _status(st, ctx):
     sap = ok & _is(ctx.mid, "strengthsap") & (st.sub_hp[o] == 0)
     target_atk = boosted_stat(_i(st.stats[o, tslot, 1]), _i(st.boosts[o, 0]))
     st, _ = apply_boosts(st, o, jnp.array([-1, 0, 0, 0, 0, 0, 0]), sap, from_foe=True)
-    return gain_hp(st, s, slot, target_atk, sap)
+    # Liquid Ooze turns the heal into damage (its onSourceTryHeal covers Strength Sap)
+    ooze = st.ability[o, tslot] == ABILITY.liquidooze
+    st = lose_hp(st, s, slot, target_atk, sap & ooze)
+    return gain_hp(st, s, slot, target_atk, sap & ~ooze)
 
 
 @hooks.hook("priority")

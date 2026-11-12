@@ -43,7 +43,7 @@
  *         sides: [{id, active: [slot], sideConditions, pokemon: [MON]}], requests: {p1, p2}, log: [new lines]}
  *   MON: {name, species, slot, hp, maxhp, status, statusTurns, toxicStage, boosts, item, ability, teraType,
  *         terastallized, volatiles, moves: [{id, pp, maxpp, disabled}], fainted, active, stats, types,
- *         abilitySuppressed}
+ *         abilitySuppressed, trapped}
  */
 'use strict';
 
@@ -134,6 +134,7 @@ function monState(p, slot) {
 		stats: {...p.storedStats},
 		types: p.getTypes(),
 		abilitySuppressed: !!(p.isActive && p.ignoringAbility()),
+		trapped: !!(p.isActive && p.trapped), // also a hidden trap (Magnet Pull), which the request only shows as maybeTrapped
 	};
 }
 

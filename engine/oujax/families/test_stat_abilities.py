@@ -33,7 +33,7 @@ GAMBIT_DEFIANT = mon("Kingambit", "Leftovers", "Defiant", ["Iron Head", "Kowtow 
                      tera="Dark")  # fmt: skip
 VALIANT_COMP = mon("Iron Valiant", "Leftovers", "Competitive", ["Moonblast", "Close Combat", "Calm Mind", "Psychic"],
                    evs=SPEC, nature="Timid", tera="Fairy")  # fmt: skip
-RIBOMBEE = mon("Ribombee", "Focus Sash", "Shield Dust", ["Sticky Web", "Moonblast", "Stun Spore", "U-turn"],
+RIBOMBEE = mon("Ribombee", "Leftovers", "Shield Dust", ["Sticky Web", "Moonblast", "Stun Spore", "U-turn"],
                evs=SPEC, nature="Timid", tera="Ghost")  # fmt: skip
 SALAMENCE = mon("Salamence", "Leftovers", "Moxie", ["Dragon Claw", "Earthquake", "Dragon Dance", "Fire Fang"],
                 evs=PHYS, nature="Jolly", tera="Dragon")  # fmt: skip
@@ -73,9 +73,9 @@ class TestStatAbilities(AbilityScenarios, unittest.TestCase):
         self.play(team(GRIMM, PEX), team(PELIPPER, METAGROSS, CORV_MIRROR), script)
 
     def test_defiant_competitive_sticky_web(self):
-        # Sticky Web's Speed drop on entry triggers Defiant / Competitive; Parting Shot's two drops give +4
-        script = [(0, 0), (0, 0), (8, 8), (0, 0), (8, 9), (1, 0)]
-        self.play(team(RIBOMBEE, GRIMM), team(PEX, GAMBIT_DEFIANT, VALIANT_COMP), script)
+        # Sticky Web's Speed drop on entry triggers Competitive / Defiant; Parting Shot's two drops give +4
+        script = [(0, 0), (0, 0), (8, 9), (0, 8), (1, 0)]
+        self.play(team(RIBOMBEE, GRIMM.replace("Prankster", "Frisk")), team(PEX, GAMBIT_DEFIANT, VALIANT_COMP), script)
 
     def test_moxie_and_chilling_neigh(self):
         script = [(0, 0), (0, 1), (0, 0), (8, 0), (0, 0), (0, 0)]
@@ -98,7 +98,7 @@ class TestStatAbilities(AbilityScenarios, unittest.TestCase):
 
     def test_gale_wings_and_triage(self):
         # Gale Wings: Flying moves +1 priority at full HP only; Triage: healing moves +3
-        script = [(0, 0), (0, 0), (0, 0), (8, 8), (0, 0), (0, 0)]
+        script = [(0, 0), (0, 0), (8, 8), (0, 0), (8, 8), (0, 0)]
         self.play(team(TALONFLAME, COMFEY), team(DRAGAPULT, GAMBIT), script)
 
 
