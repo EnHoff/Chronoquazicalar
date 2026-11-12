@@ -25,7 +25,7 @@ ITEM = _ns(
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
     "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
-    "powerherb",
+    "powerherb focussash",
 )
 ABILITY = _ns(
     T.ability_ids,

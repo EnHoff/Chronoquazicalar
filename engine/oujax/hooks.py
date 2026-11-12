@@ -34,6 +34,7 @@ Events (arguments after the state; return value):
   status_move(st, ctx)                  -> st              extra effects of a landed status move
   after_move(st, ctx)                   -> st              after any move resolution, whether it landed or not
   switch_in(st, side, key, cfg, cond)   -> st              entry effects after hazards and built-in abilities
+  switch_in_slot(st, side, key, cfg, cond) -> st           slot conditions on entry, before hazards (Healing Wish)
   switch_out(st, side, cond)            -> st              leaving the field, before volatiles reset
   residual(order)(st, key, cfg, cond)   -> st              end-of-turn effect at Showdown's onResidualOrder
   legal_moves(st, side, mask)           -> mask            (4,) bool move legality (Encore, Taunt, ...)
@@ -70,6 +71,7 @@ EVENTS = {
     "before_move", "move_fails", "try_hit", "damage_taken", "after_hit", "status_move", "after_move", "switch_in",
     "switch_out", "residual", "legal_moves", "speed", "priority", "status_immune", "can_heal", "boost_change",
     "hit_power", "damage_override", "crit_stage", "accuracy", "move_try_hit", "damaging_hit", "try_move",
+    "switch_in_slot",
     "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod", "hit_count",
 }  # fmt: skip
 
