@@ -62,6 +62,8 @@ HANDWRITTEN_MOVES = {
     "focuspunch", "skyattack", "rockwrecker", "beatup",
     "reversal", "flail", "shellsidearm",
     "sandtomb", "thundercage", "gigaimpact",
+    # M3 item_moves / slot_conditions families
+    "trick", "switcheroo", "wish", "healingwish", "lunardance",
 }  # fmt: skip
 SUPPORTED_SIDE_CONDITIONS = {
     "",

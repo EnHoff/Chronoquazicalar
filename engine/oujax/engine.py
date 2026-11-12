@@ -585,7 +585,10 @@ def enter_field(st: Battle, s, slot, cond):
 
 
 def run_switch_in(st: Battle, s, key, cfg: Config, cond):
-    """Entry effects for side s's new active Pokemon (Battle.runSwitch): hazards, then ability, then item."""
+    """Entry effects for side s's new active Pokemon (Battle.runSwitch): slot conditions, hazards, then ability,
+    then item."""
+    for h in hooks.handlers("switch_in_slot"):
+        st = h(st, s, key, cfg, cond)
     slot = act(st, s)
     boots = st.item[s, slot] == ITEM.heavydutyboots
     gr = grounded(st, s, slot)
