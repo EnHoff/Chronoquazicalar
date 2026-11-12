@@ -3,7 +3,7 @@ engine/oujax/families/move_misc.py
 Moves whose success depends on the turn: Sucker Punch / Thunderclap (the target must be about to attack), Upper
 Hand (... with a priority move), Fake Out / First Impression (first turn out), Focus Punch (fails if hit first),
 Beak Blast (burns contact attackers while it charges); Ice Spinner (clears terrain), Stone Axe (Stealth Rock),
-Sparkling Aria (cures the target's burn), Fell Stinger (+3 Atk on a KO), Double Shock (the user loses its
+Sparkling Aria (cures the target's burn), Gigaton Hammer / Blood Moon (not twice in a row), Fell Stinger (+3 Atk on a KO), Double Shock (the user loses its
 Electric type), Hyperspace Fury (Hoopa-Unbound only, breaks Protect); the Protect variants Spiky Shield,
 Baneful Bunker and Burning Bulwark (contact punishment) and Endure.
 """
@@ -42,6 +42,8 @@ T = load_tables()
 HOOPA_UNBOUND = T.species_ids["hoopaunbound"]
 BREAKS_PROTECT = move_table("hyperspacefury")
 
+# flags.cantusetwice (Gigaton Hammer, Blood Moon): disabled while it is the Pokemon's lastMove
+CANT_USE_TWICE = move_table(" ".join(m for m, d in T.dex["moves"].items() if "cantusetwice" in (d.get("flags") or {})))
 TARGET_MUST_ATTACK = move_table("suckerpunch thunderclap")
 FIRST_TURN_ONLY = move_table("fakeout firstimpression")
 
@@ -199,3 +201,9 @@ for _name in ("spikyshield", "banefulbunker", "burningbulwark"):
     hooks.showdown_volatile(_name)(
         (lambda m: lambda st, s: st.protected[s] & (vol(st, s, "protect_kind") == m))(MID[_name])
     )
+
+
+@hooks.hook("legal_moves")
+def _cant_use_twice(st, s, mask):
+    mids = _i(st.moves[s, jnp.maximum(act(st, s), 0)])
+    return mask & ~(CANT_USE_TWICE[mids] & (mids == vol(st, s, "last_move")))
