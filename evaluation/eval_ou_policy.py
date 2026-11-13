@@ -14,7 +14,7 @@ import time
 import uuid
 from pathlib import Path
 
-from poke_env.player import RandomPlayer, SimpleHeuristicsPlayer
+from poke_env.player import MaxBasePowerPlayer, RandomPlayer, SimpleHeuristicsPlayer
 from poke_env.ps_client.account_configuration import AccountConfiguration
 from poke_env.ps_client.server_configuration import LocalhostServerConfiguration
 from poke_env.teambuilder import Teambuilder
@@ -24,7 +24,7 @@ from training.ou_ppo import covered_pool
 
 REPO = Path(__file__).resolve().parents[1]
 EVAL_TEAMS = REPO / "data" / "ou" / "generated" / "eval_teams"
-OPPONENTS = {"random": RandomPlayer, "heuristic": SimpleHeuristicsPlayer}
+OPPONENTS = {"random": RandomPlayer, "maxdamage": MaxBasePowerPlayer, "heuristic": SimpleHeuristicsPlayer}
 
 
 class Rotating(Teambuilder):
@@ -78,9 +78,21 @@ def main(argv=None):
     ap.add_argument("--games", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--sample", action="store_true", help="sample from the policy instead of taking its argmax")
+    ap.add_argument("--out", default=None, help="append the result as a JSON line to this file")
     args = ap.parse_args(argv)
     res = asyncio.run(run(args.checkpoint, args.opponent, args.games, args.seed, not args.sample))
+    n, w = res["finished"], res["wins"]
+    p = w / max(n, 1)
+    # 95% Wilson score interval
+    z = 1.96
+    den = 1 + z * z / max(n, 1)
+    mid = (p + z * z / (2 * max(n, 1))) / den
+    half = z * (p * (1 - p) / max(n, 1) + z * z / (4 * max(n, 1) ** 2)) ** 0.5 / den
+    res["ci95"] = [round(mid - half, 3), round(mid + half, 3)]
     print(json.dumps(res))
+    if args.out:
+        with open(args.out, "a") as f:
+            f.write(json.dumps(res) + "\n")
 
 
 if __name__ == "__main__":

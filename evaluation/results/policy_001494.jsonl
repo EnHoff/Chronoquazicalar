@@ -1,0 +1,3 @@
+{"checkpoint": "checkpoints/ou_ppo/policy_001494.pkl", "opponent": "random", "games": 50, "finished": 50, "wins": 49, "win_rate": 0.98, "timeouts": 0, "mean_turns": 27.0, "seconds": 15, "ci95": [0.895, 0.996]}
+{"checkpoint": "checkpoints/ou_ppo/policy_001494.pkl", "opponent": "maxdamage", "games": 50, "finished": 50, "wins": 48, "win_rate": 0.96, "timeouts": 0, "mean_turns": 22.6, "seconds": 10, "ci95": [0.865, 0.989]}
+{"checkpoint": "checkpoints/ou_ppo/policy_001494.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 37, "win_rate": 0.74, "timeouts": 0, "mean_turns": 19.3, "seconds": 12, "ci95": [0.604, 0.841]}
