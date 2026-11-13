@@ -1596,29 +1596,34 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     first0 = p1_first(keys[1], prio, spe, cfg)
     order = jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
 
-    pivot_side = jnp.int32(-1)
-    resume_after = jnp.int8(RESUME_NONE)
-    queued = jnp.full((2,), NO_ACTION, jnp.int32)
-    for i in range(2):
+    # Both movers run through one traced run_move (fori_loop over the turn order): tracing it once per mover
+    # doubled the compiled step, and XLA's compile memory with it
+    def mover(i, carry):
+        st, pivot_side, resume_after, queued, uses_move = carry
         s = order[i]
         o = 1 - s
+        first = i == 0
         # Showdown ends the battle the moment a side has nothing left, so nobody acts after that
         decided_now = jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)
         go = uses_move[s] & (pivot_side < 0) & ~decided_now
-        last = ~(uses_move[o] & (i == 0))
-        foe_pending = jnp.where((i == 0) & uses_move[o], move_ids[o], 0)
+        last = ~(uses_move[o] & first)
+        foe_pending = jnp.where(first & uses_move[o], move_ids[o], 0)
         ms = move_slot[s]
         for h in hooks.handlers("override_move"):
             ms = jnp.where(struggle[s], ms, h(st, s, ms))
         st, pivot = run_move(st, s, ms, struggle[s], go, last, keys[2 + i], cfg, foe_pending)
         pivot = go & pivot
         # A pivot suspends the turn: remember the other side's move if it still has to act
-        queued = jnp.where(pivot & (i == 0) & uses_move[o], queued.at[o].set(move_action[o]), queued)
-        resume_after = jnp.where(pivot, jnp.int8(RESUME_SECOND_MOVE if i == 0 else RESUME_END_OF_TURN), resume_after)
+        queued = jnp.where(pivot & first & uses_move[o], queued.at[o].set(move_action[o]), queued)
+        after = jnp.where(first, jnp.int8(RESUME_SECOND_MOVE), jnp.int8(RESUME_END_OF_TURN))
+        resume_after = jnp.where(pivot, after, resume_after)
         pivot_side = jnp.where(pivot, s, pivot_side)
-        if i == 0:
-            # The second mover's move only runs if no pivot happened
-            uses_move = uses_move.at[o].set(uses_move[o] & ~pivot)
+        # The second mover's move only runs if no pivot happened
+        uses_move = jnp.where(first, uses_move.at[o].set(uses_move[o] & ~pivot), uses_move)
+        return st, pivot_side, resume_after, queued, uses_move
+
+    carry = (st, jnp.int32(-1), jnp.int8(RESUME_NONE), jnp.full((2,), NO_ACTION, jnp.int32), uses_move)
+    st, pivot_side, resume_after, queued, uses_move = jax.lax.fori_loop(0, 2, mover, carry)
     suspended = pivot_side >= 0
 
     # 4. End of turn
