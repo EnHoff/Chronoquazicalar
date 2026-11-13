@@ -65,6 +65,11 @@ CRAMORANT = mon("Cramorant", "Leftovers", "Gulp Missile", ["Surf", "Roost", "Bra
 BRELOOM = mon("Breloom", "Leftovers", "Effect Spore", ["Spore", "Bullet Seed", "Protect", "Mach Punch"], evs=WALL,
               nature="Impish", tera="Fire")  # fmt: skip
 
+DONDOZO = mon("Dondozo", "Leftovers", "Unaware", ["Waterfall", "Body Press", "Earthquake", "Protect"], evs=WALL,
+              nature="Impish", tera="Water")  # fmt: skip
+TINGLU = mon("Ting-Lu", "Leftovers", "Vessel of Ruin", ["Earthquake", "Stealth Rock", "Spikes", "Protect"],
+             evs=SWALL, nature="Careful", tera="Water")  # fmt: skip
+
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
 class TestContactAbilities(AbilityScenarios, unittest.TestCase):
@@ -85,8 +90,8 @@ class TestContactAbilities(AbilityScenarios, unittest.TestCase):
     def test_toxic_chain_poison_touch_covert_cloak(self):
         # Toxic Chain badly poisons on any hit; Poison Touch poisons on contact; Covert Cloak and Shield Dust
         # block both
-        script = [(0, 0), (0, 0), (0, 8), (8, 0), (0, 8), (0, 0)]
-        self.play(team(OKIDOGI, SNEASLER), team(GAMBIT, COAT_DUST, SHIELD_DUST), script)
+        script = [(0, 0), (0, 0), (0, 8), (8, 9), (0, 0), (0, 10), (0, 0)]
+        self.play(team(SNEASLER, OKIDOGI), team(DONDOZO, COAT_DUST, SHIELD_DUST, TINGLU), script)
 
     def test_pickpocket_and_magician(self):
         # Pickpocket takes a contact attacker's item; Magician takes the target's item after its hit
