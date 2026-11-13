@@ -1,0 +1,1 @@
+{"checkpoint": "checkpoints/ou_ppo/policy_002002.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 36, "win_rate": 0.72, "timeouts": 0, "mean_turns": 25.0, "seconds": 15, "ci95": [0.583, 0.825]}
