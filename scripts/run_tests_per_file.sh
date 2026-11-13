@@ -8,6 +8,8 @@
 cd "$(dirname "$0")/.." || exit 1
 files=$(git ls-files '*test_*.py' | grep -v '^tools/')
 LIMIT=${MEM_LIMIT_MB:-7000}
+# Persistent XLA compile cache: files that compile the same step reuse it (a file drops from minutes to seconds)
+export JAX_COMPILATION_CACHE_DIR=${JAX_COMPILATION_CACHE_DIR:-$HOME/.cache/oujax_xla}
 LOG=${LOG:-logs/tests_per_file.log}
 mkdir -p "$(dirname "$LOG")"; echo "=== $(date -Is) $(git rev-parse --short HEAD)" >> "$LOG"
 pass=0; fail=0; status=0
@@ -16,11 +18,11 @@ for f in $files; do
   /usr/bin/time -f "%M" pytest -q -p no:cacheprovider "$@" "$f" > "$tmp" 2>&1 &
   tpid=$!
   while kill -0 $tpid 2>/dev/null; do
-    rss=$(ps -o rss= --ppid $tpid 2>/dev/null | sort -n | tail -1)
+    rss=$(ps -o rss= --ppid $tpid 2>/dev/null | sort -n | tail -1)  # pytest itself (time's child)
     if [ -n "$rss" ] && [ $((rss / 1024)) -gt "$LIMIT" ]; then
       echo "MEMORY LIMIT: $f passed ${LIMIT} MB, killed" >> "$tmp"; pkill -P $tpid; break
     fi
-    sleep 2
+    sleep 1
   done
   wait $tpid; rc=$?
   out=$(cat "$tmp"); rm -f "$tmp"
