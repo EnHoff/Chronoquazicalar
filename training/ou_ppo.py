@@ -249,7 +249,14 @@ def make_update(model: Policy, opt, clip=0.2, ent_coef=0.01, vf_coef=0.5, za_coe
         ent = -jnp.sum(w * jnp.sum(probs * jnp.where(b["mask"], logp_all, 0.0), -1)) / n
         za = -jnp.sum(w * jnp.sum(valid * jnp.maximum(logp_all, -20.0), -1) / jnp.maximum(valid.sum(-1), 1.0)) / n
         total = pg + vf_coef * vf - ent_coef * ent + za_coef * za
-        return total, {"pg": pg, "vf": vf, "entropy": ent, "za": za, "clipfrac": jnp.mean(jnp.abs(ratio - 1) > clip)}
+        return total, {
+            "pg": pg,
+            "vf": vf,
+            "entropy": ent,
+            "za": za,
+            "clipfrac": jnp.sum(w * (jnp.abs(ratio - 1) > clip)) / n,
+            "ratio_dev": jnp.sum(w * jnp.abs(ratio - 1)) / n,
+        }
 
     @jax.jit
     def update(params, opt_state, batch):
@@ -324,7 +331,7 @@ def main(argv=None):
     st0 = jax.tree.map(lambda b: b[0], bank)
     obs0 = observe(st0, init_seen(st0), 0)
     params = model.init(key, obs0, legal_actions(st0)[0])
-    n_params = sum(x.size for x in jax.tree.util.tree_leaves(params))
+    n_params = sum(x.size for x in jax.tree.leaves(params))
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(args.lr))
     opt_state = opt.init(params)
     league = jax.tree.map(lambda x: jnp.stack([x] * args.league), params)
@@ -360,6 +367,8 @@ def main(argv=None):
                 idx = perm[i * mb : (i + 1) * mb]
                 batch = jax.tree.map(lambda x: x[idx], flat)
                 params, opt_state, aux = update(params, opt_state, batch)
+                if ep == 0 and i == 0:
+                    aux0 = aux
         jax.block_until_ready(params)
         dt = time.time() - t0
         update_i += 1
@@ -382,6 +391,7 @@ def main(argv=None):
             "random_games_window": rg,
             "league_wr": round(s["league_wins"] / s["league_games"], 3) if s["league_games"] else None,
             **{k: round(float(v), 4) for k, v in jax.device_get(aux).items()},
+            "ratio_dev_first_mb": round(float(aux0["ratio_dev"]), 4),
         }
         if update_i == 1:
             row["setup_s"] = round(t0 - t_setup)
