@@ -16,6 +16,7 @@ PPO self-play for Gen 9 OU on OU-JAX: everything (battles, observations, policy,
 import argparse
 import json
 import pickle
+import signal
 import time
 from functools import partial
 from pathlib import Path
@@ -353,7 +354,16 @@ def main(argv=None):
     last_ckpt = time.time()
     deadline = t_start + (args.minutes * 60 if args.minutes else args.hours * 3600)
     win_hist = []
-    while time.time() < deadline:
+    # SIGTERM / SIGINT finish the current update, write a checkpoint and exit (a stop loses nothing)
+    stop = {"now": False}
+
+    def request_stop(signum, frame):
+        stop["now"] = True
+        print(f"signal {signum}: checkpointing after this update", flush=True)
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    while time.time() < deadline and not stop["now"]:
         t0 = time.time()
         key, k_roll, k_perm = jax.random.split(key, 3)
         envs, traj, last_v, stats = rollout(params, league, envs, k_roll, args.steps)
@@ -404,7 +414,7 @@ def main(argv=None):
             f.write(json.dumps(row) + "\n")
         if update_i % 10 == 1:
             print(json.dumps(row), flush=True)
-        if time.time() - last_ckpt > args.ckpt_minutes * 60 or time.time() >= deadline:
+        if time.time() - last_ckpt > args.ckpt_minutes * 60 or time.time() >= deadline or stop["now"]:
             ck = {"params": params, "opt_state": opt_state, "league": league, "update": update_i,
                   "env_steps": env_steps, "league_next": league_next, "args": vars(args)}  # fmt: skip
             save(latest, ck)
