@@ -95,6 +95,12 @@ MULTIHIT_2_5 = jnp.array([2] * 7 + [3] * 7 + [4] * 3 + [5] * 3, jnp.int32)  # Ge
 ACC_NUM = jnp.array([3, 4, 5, 6, 7, 8, 9], jnp.int32)  # accuracy stages x3: [1, 4/3, 5/3, 2, 7/3, 8/3, 3]
 SPIKES_24THS = jnp.array([0, 3, 4, 6], jnp.int32)
 MAX_HITS = 10  # Population Bomb
+# Moves that still hit after their user fainted using them (selfdestruct: 'always', and Final Gambit, whose user
+# faints as its damage is calculated)
+SELF_KO_HITS = jnp.zeros(len(MID) + 1, bool)
+for _m, _raw in T.dex["moves"].items():
+    if _raw.get("selfdestruct") == "always" or _m == "finalgambit":
+        SELF_KO_HITS = SELF_KO_HITS.at[MID[_m]].set(True)
 FOE_TARGETS = jnp.array(
     [
         TARGET_ID[t]
@@ -184,6 +190,7 @@ class MoveCtx(NamedTuple):
     acc_chain: jnp.ndarray = jnp.int32(4096)  # ModifyAccuracy modifier
     acc_stage: jnp.ndarray = jnp.int32(0)  # accuracy minus evasion stage, clipped
     base_mid: jnp.ndarray = jnp.int32(0)  # the move chosen (Sleep Talk) when mid is a move it called
+    missed: jnp.ndarray = jnp.bool_(False)  # the accuracy check failed (not immunity or Protect): Blunder Policy
 
 
 # Core per-turn bookkeeping used by several families (claimed here, before any family module)
@@ -193,6 +200,12 @@ hooks.VOL.add("dmg_spec")  # ... special moves
 hooks.VOL.add("dmg_last")  # 1 + damage of the last damaging hit this turn (0 on a Substitute), 0 if none
 hooks.VOL.add("move_result")  # this turn's move: 0 none or not counted (Protect), 1 worked, 2 failed
 hooks.VOL.add("last_failed")  # the previous turn's move failed (Stomping Tantrum, Temper Flare)
+# Mid-turn switches (Showdown's switchFlag / forceSwitchFlag), processed after every action by process_flags
+hooks.SIDE.add("switch_flag")  # SW_* below: the active Pokemon leaves by a switch request
+hooks.SIDE.add("drag_flag")  # the active Pokemon is dragged out for a random benched one (Roar, Red Card)
+hooks.SIDE.add("revive")  # a pending switch request picks a fainted Pokemon to revive (Revival Blessing)
+hooks.MON.add("sd_pos")  # position in Showdown's side.pokemon list (switch-ins swap with position 0)
+SW_PIVOT, SW_REVIVE, SW_TRUE = 1, 2, 3  # switchFlag = move id (U-turn, ...), 'revivalblessing', true (Eject Button)
 
 
 # --- small helpers ---------------------------------------------------------------------------------
@@ -411,6 +424,9 @@ def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False, depth=0):
     if depth == 0 and from_foe is not False:
         for h in hooks.handlers("after_boost"):
             st = h(st, s, old, new, raw, from_foe, depth)
+    # Items that react to any stage change, the holder's own included (White Herb, Mirror Herb, Eject Pack)
+    for h in hooks.handlers("boost_applied"):
+        st = h(st, s, new - old, cond & jnp.any(new != old))
     return st, jnp.any(new != old)
 
 
@@ -422,7 +438,10 @@ def eat_sitrus(st: Battle, s):
     for h in hooks.handlers("can_heal"):
         eat = eat & h(st, s, slot)  # Sitrus Berry's onTryEatItem: not eaten while healing is blocked
     st = gain_hp(st, s, slot, maxhp // 4, eat)
-    return st.replace(item=st.item.at[s, slot].set(jnp.where(eat, 0, st.item[s, slot])))
+    st = st.replace(item=st.item.at[s, slot].set(jnp.where(eat, 0, st.item[s, slot])))
+    for h in hooks.handlers("item_update"):
+        st = h(st, s)
+    return st
 
 
 def status_immune(st: Battle, s, slot, status, poison_types=True):
@@ -445,6 +464,15 @@ def status_immune(st: Battle, s, slot, status, poison_types=True):
         )
         | ((status == FRZ) & has_type(t, TY["ice"]))
     )
+
+
+def secondaries_blocked(st: Battle, s, o):
+    """ModifySecondaries on side o's active Pokemon: the foe's move loses its secondary effects on it (Covert
+    Cloak, Shield Dust); effects on the move's user (secondary.self) still apply."""
+    blocked = jnp.bool_(False)
+    for h in hooks.handlers("secondaries_blocked"):
+        blocked = blocked | h(st, s, o)
+    return blocked
 
 
 def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True, cond=True, hazard=False, hook=True):
@@ -570,6 +598,8 @@ def set_terrain(st: Battle, terrain, s, slot, cond, refresh=True):
         terrain=jnp.where(ok, terrain, st.terrain).astype(jnp.int8),
         terrain_turns=jnp.where(ok, turns, st.terrain_turns).astype(jnp.int8),
     )
+    for h in hooks.handlers("terrain_change"):
+        st = h(st, ok)
     return (refresh_paradox(st) if refresh else st), ok
 
 
@@ -615,6 +645,16 @@ def reset_volatiles(st: Battle, s, cond):
 
 def enter_field(st: Battle, s, slot, cond):
     """Put team slot `slot` in side s's active position (no entry effects yet)."""
+    # Showdown's side.pokemon order (random replacements pick from it): the lead goes first with the rest in
+    # team order, then every switch-in swaps places with the Pokemon it replaces
+    old, ar, i = act(st, s), jnp.arange(6), hooks.MON.index["sd_pos"]
+    pos = _i(st.mon_ex[s, :, i])
+    new_pos = jnp.where(
+        old < 0,
+        jnp.where(ar == slot, 0, ar + (ar < slot)),
+        jnp.where(ar == slot, 0, jnp.where(ar == old, pos[slot], pos)),
+    )
+    st = st.replace(mon_ex=st.mon_ex.at[s, :, i].set(jnp.where(cond, new_pos, pos).astype(st.mon_ex.dtype)))
     st = st.replace(active=st.active.at[s].set(jnp.where(cond, slot, st.active[s]).astype(jnp.int8)))
     # Supreme Overlord counts the side's fainted Pokemon when it comes in
     fainted = jnp.sum((st.species[s] > 0) & (st.hp[s] == 0))
@@ -704,14 +744,70 @@ def do_switches(st: Battle, wants, targets, key, cfg: Config, together=False):
         st = switch_out(st, s, cond & (st.active[s] >= 0))
         st = enter_field(st, s, targets[s], cond)
     order = jnp.where(together, order_now(st), order)
-    keys = (k0, k1)
-    for i in range(2):
+    keys = jnp.stack([k0, k1])
+
+    # One traced switch-in for both sides (fori_loop over the order) keeps the compiled step small
+    def one(i, st):
         s = order[i]
         cond = wants[s] & ~together
         st = switch_out(st, s, cond & (st.active[s] >= 0))
         st = enter_field(st, s, targets[s], cond)
-        st = run_switch_in(st, s, keys[i], cfg, wants[s])
-    return st
+        return run_switch_in(st, s, keys[i], cfg, wants[s])
+
+    return jax.lax.fori_loop(0, 2, one, st)
+
+
+def random_bench(st: Battle, s, key, cfg: Config):
+    """Battle.getRandomSwitchable: a random living benched Pokemon (forced: the first in Showdown's order)."""
+    ok = alive_mask(st)[s] & (jnp.arange(6) != act(st, s))
+    if cfg.forced:
+        score = -st.mon_ex[s, :, hooks.MON.index["sd_pos"]].astype(jnp.float32)
+    else:
+        score = jax.random.uniform(key, (6,))
+    return jnp.argmax(jnp.where(ok, score, -1e9))
+
+
+def drag_in(st: Battle, s, key, cfg: Config, cond):
+    """Actions.dragIn: replace side s's active Pokemon by a random benched one, with entry effects."""
+    cond = cond & (st.hp[s, jnp.maximum(act(st, s), 0)] > 0) & bench_available(st, s)
+    target = random_bench(st, s, jax.random.fold_in(key, 1), cfg)
+    st = switch_out(st, s, cond)
+    st = enter_field(st, s, target, cond)
+    st = run_switch_in(st, s, jax.random.fold_in(key, 2), cfg, cond)
+    # Switching out clears the old Pokemon's switch request (a U-turn user dragged out by Red Card stays out)
+    return set_side_ex(st, s, "switch_flag", 0, cond)
+
+
+def process_flags(st: Battle, key, cfg: Config, cond):
+    """After an action (Battle.runAction): drag out Pokemon flagged by Roar / Red Card, then turn switch flags
+    into switch requests. Returns (state, (2,) bool sides that must pick a switch now)."""
+
+    def drag(s, st):
+        st = drag_in(st, s, jax.random.fold_in(key, s), cfg, cond & (side_ex(st, s, "drag_flag") > 0))
+        return set_side_ex(st, s, "drag_flag", 0, cond)
+
+    st = jax.lax.fori_loop(0, 2, drag, st)  # one traced drag-in for both sides
+    need = []
+    for s in (0, 1):
+        flag = side_ex(st, s, "switch_flag")
+        alive = st.hp[s, jnp.maximum(act(st, s), 0)] > 0
+        fainted_mates = jnp.any((st.species[s] > 0) & (st.hp[s] == 0))
+        revive = cond & (flag == SW_REVIVE) & fainted_mates
+        need.append(cond & ((flag > 0) & (flag != SW_REVIVE) & alive & bench_available(st, s) | revive))
+        st = set_side_ex(st, s, "revive", 1, revive)
+        st = set_side_ex(st, s, "switch_flag", 0, cond)
+    return st, jnp.stack(need)
+
+
+def revive_member(st: Battle, s, slot, cond):
+    """Revival Blessing: a fainted team member comes back at half HP with no status (it stays benched)."""
+    maxhp = _i(st.stats[s, slot, 0])
+    st = st.replace(
+        hp=st.hp.at[s, slot].set(jnp.where(cond, maxhp // 2, st.hp[s, slot]).astype(st.hp.dtype)),
+        status=st.status.at[s, slot].set(jnp.where(cond, 0, st.status[s, slot])),
+        status_turns=st.status_turns.at[s, slot].set(jnp.where(cond, 0, st.status_turns[s, slot])),
+    )
+    return set_side_ex(st, s, "revive", 0, cond)
 
 
 # --- moves -----------------------------------------------------------------------------------------
@@ -960,7 +1056,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     immune &= targets_foe & (row[MC["type_immunity"]] == 1) & ~struggle
     immune |= targets_foe & ((flags & FLAG_BIT["powder"]) > 0) & has_type(t_types, TY["grass"])
     landed &= ~immune
-    ctx = ctx._replace(landed=landed)
+    ctx = ctx._replace(landed=landed, missed=proceeds_hit & ~hits & ~immune)
     for h in hooks.handlers("move_try_hit"):
         st = h(st, ctx)
 
@@ -973,14 +1069,25 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
         )
     )
     st = after_damage(st, s, mid, landed & ~is_status, dealt, hit_sub, keys[10], cfg)
+    # Pivot (switchFlag): damaging pivots switch if they connected, status pivots per status_phase. Raised
+    # before the after-hit items so Eject Button can cancel it
+    self_switch = row[MC["self_switch"]] > 0
+    can_pivot = (st.hp[s, slot] > 0) & bench_available(st, s)
+    st = set_side_ex(st, s, "switch_flag", SW_PIVOT, self_switch & ~is_status & landed & can_pivot)
     for h in hooks.handlers("after_hit"):
         st = h(st, ctx._replace(landed=landed & ~is_status), dealt, hit_sub)
+    # Life Orb (AfterMoveSecondarySelf: after the target's items; not when Red Card is dragging the user out)
+    sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & HAS_SECONDARIES[mid]
+    life_orb = landed & ~is_status & ~sheer_force & (st.item[s, slot] == ITEM.lifeorb)
+    st = lose_hp(st, s, slot, _i(st.stats[s, slot, 0]) // 10, life_orb & (side_ex(st, s, "drag_flag") == 0))
     # Berries wait for the move's secondaries (Psychic Noise's Heal Block stops Sitrus Berry)
     st = eat_sitrus(eat_sitrus(st, o), s)
     # A bounced move runs its status effects with user and target swapped
     st_user = jnp.where(bounced, o, s)
     st, pivot_ok = status_phase(st, st_user, mid, (landed & is_status) | bounce_lands, keys[11], cfg)
     pivot_ok &= ~bounced
+    can_pivot = (st.hp[s, slot] > 0) & bench_available(st, s)
+    st = set_side_ex(st, s, "switch_flag", SW_PIVOT, self_switch & is_status & pivot_ok & can_pivot)
     s_ctx = ctx._replace(
         s=st_user,
         o=jnp.where(bounced, s, o),
@@ -991,9 +1098,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
         st = h(st, s_ctx._replace(landed=(landed & is_status) | bounce_lands))
     st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & PROTECTS[mid])))
 
-    # Pivot: damaging pivots switch if they connected; status pivots per status_phase
-    self_switch = row[MC["self_switch"]] > 0
-    pivot = self_switch & jnp.where(is_status, pivot_ok, landed) & (st.hp[s, slot] > 0) & bench_available(st, s)
+    pivot = side_ex(st, s, "switch_flag") > 0
     st = set_vol(st, s, "moved", 1, enabled)
     # Not getting to move (sleep, full paralysis, flinch) counts as a failure for Stomping Tantrum
     result = jnp.where(landed | (proceeds & is_status & ~targets_foe), 1, jnp.where(not_fail | stopped, 0, 2))
@@ -1092,7 +1197,8 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
             else:
                 acc_ok = acc_ok | (jax.random.randint(jax.random.fold_in(keys[2], h), (), 0, 100) < later_acc)
         missed = missed | ~acc_ok
-        go = active & (h < n_hits) & ~missed & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
+        user_up = (st.hp[s, act(st, s)] > 0) | ((h == 0) & SELF_KO_HITS[mid])
+        go = active & (h < n_hits) & ~missed & (st.hp[o, tslot] > 0) & user_up
         if cfg.forced:
             crit = jnp.bool_(cfg.crit) & ~no_crit
             roll = jnp.int32(cfg.roll)
@@ -1139,6 +1245,17 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         )
         to_mon = jnp.minimum(d, _i(st.hp[o, tslot]))
         st = set_hp(st, o, tslot, jnp.where(go & ~sub_now, _i(st.hp[o, tslot]) - to_mon, st.hp[o, tslot]))
+        # Drain heals as each hit lands, before DamagingHit (spreadDamage: rounded; a Substitute's onTryPrimaryHit:
+        # rounded up)
+        dr_num, dr_den = _i(row[MC["drain_num"]]), jnp.maximum(_i(row[MC["drain_den"]]), 1)
+        drained = jnp.where(sub_now, (to_sub * dr_num + dr_den - 1) // dr_den, js_round_div(to_mon * dr_num, dr_den))
+        for hk in hooks.handlers("drain_heal"):
+            drained = hk(st, s, drained)
+        # Liquid Ooze turns the drain into damage
+        ooze = st.ability[o, tslot] == ABILITY.liquidooze
+        drain = go & (dr_num > 0) & (drained > 0)
+        st = gain_hp(st, s, act(st, s), drained, drain & ~ooze)
+        st = lose_hp(st, s, act(st, s), drained, drain & ooze)
         # Air Balloon pops on any damaging hit, including one that only hits its Substitute (onAfterSubDamage)
         pop = go & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
         st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop | berry, 0, st.item[o, tslot])))
@@ -1168,29 +1285,15 @@ def _eat_if(st: Battle, s, cond):
 
 
 def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
-    """Effects after a damaging move connects: drain, Rocky Helmet, secondaries and self drops, Knock Off,
-    hazard removal, recoil and Life Orb."""
+    """Effects after a damaging move connects: drain, secondaries and self drops, Knock Off,
+    hazard removal and recoil (Life Orb runs after the after-hit items, in run_move)."""
     o = foe(s)
     slot, tslot = act(st, s), act(st, o)
     row = MOVES[mid]
     maxhp = _i(st.stats[s, slot, 0])
     connected = landed & (dealt > 0)
-    # Drain
-    drain = (row[MC["drain_num"]] > 0) & connected
-    drained = js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]])
-    ooze = st.ability[o, tslot] == ABILITY.liquidooze  # Liquid Ooze turns the drain into damage
-    st = gain_hp(st, s, slot, drained, drain & ~ooze)
-    st = lose_hp(st, s, slot, drained, drain & ooze)
-    # Rocky Helmet on contact (not through a substitute; Punching Glove makes punches non-contact)
-    punch = (row[MC["flags"]] & FLAG_BIT["punch"]) > 0
-    contact = ((row[MC["flags"]] & FLAG_BIT["contact"]) > 0) & ~(punch & (st.item[s, slot] == ITEM.punchingglove))
-    # Shell Side Arm makes contact when it goes physical
-    ssa = (mid == MID["shellsidearm"]) & (move_category(mid, combatant(st, s), combatant(st, o)) == 0)
-    contact |= ssa
     # Sheer Force drops the move's secondary effects (and its self effects) and Life Orb recoil
     sheer_force = (st.ability[s, slot] == ABILITY.sheerforce) & HAS_SECONDARIES[mid]
-    helmet = connected & contact & ~hit_sub & (st.item[o, tslot] == ITEM.rockyhelmet)
-    st = lose_hp(st, s, slot, maxhp // 6, helmet)
     # Self stat drops / raises from the move (Close Combat, Draco Meteor, ...)
     no_foes_left = ~jnp.any(alive_mask(st)[o])
     self_boost = landed & ~sheer_force & (st.hp[s, slot] > 0) & ~(SELF_BOOST_AFTER_FAINTS[mid] & no_foes_left)
@@ -1206,7 +1309,7 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
         sec_chance, blocked = h(st, s, mid, sec_chance)
         shielded |= blocked
     sec = landed & ~sheer_force & (row[MC["sec_chance"]] > 0) & (sec_roll < sec_chance)
-    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0) & ~shielded
+    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0) & ~shielded & ~secondaries_blocked(st, s, o)
     st, _ = try_set_status(
         st, o, tslot, row[MC["sec_status"]], k_status, cfg, cond=on_target & (row[MC["sec_status"]] > 0)
     )
@@ -1221,12 +1324,11 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     # Hazard removal from the user's side
     spin = landed & ((mid == MID["rapidspin"]) | (mid == MID["mortalspin"])) & (st.hp[s, slot] > 0)
     st = st.replace(hazards=st.hazards.at[s].set(jnp.where(spin, 0, st.hazards[s])))
-    # Recoil (from damage dealt) and Life Orb
+    # Recoil (from damage dealt) and Struggle recoil (Life Orb runs after the after-hit items, in run_move)
     recoil = (row[MC["recoil_num"]] > 0) & connected & (st.ability[s, slot] != ABILITY.rockhead)
     st = lose_hp(st, s, slot, js_round_div(dealt * row[MC["recoil_num"]], row[MC["recoil_den"]]), recoil)
     struggle_recoil = landed & (mid == STRUGGLE)
     st = lose_hp(st, s, slot, js_round_div(maxhp, 4), struggle_recoil, direct=True)
-    st = lose_hp(st, s, slot, maxhp // 10, landed & ~sheer_force & (st.item[s, slot] == ITEM.lifeorb))
     return st
 
 
@@ -1249,8 +1351,9 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     hits_foe = on_foe & ~blocked_sub
     maxhp = _i(st.stats[s, slot, 0])
 
-    # Stat changes
+    # Stat changes (Parting Shot's -1 Atk / -1 SpA are in its onHit, not its boosts)
     deltas = boosts_of(mid, "boost_")
+    deltas = jnp.where(mid == MID["partingshot"], jnp.array([-1, 0, -1, 0, 0, 0, 0]), deltas)
     st, _ = apply_boosts(st, s, deltas, landed & targets_self)
     st, foe_boosted = apply_boosts(st, o, deltas, hits_foe & (st.hp[o, tslot] > 0), from_foe=True)
     # Status conditions
@@ -1485,6 +1588,10 @@ def legal_actions(st: Battle):
         benched = slots != slot
         rank = jnp.cumsum(benched) - 1
         sw = jnp.stack([jnp.any(benched & (rank == n) & alive) for n in range(5)])
+        # Revival Blessing's request picks a fainted team member instead
+        fainted = (st.species[s] > 0) & ~alive
+        revive_sw = jnp.stack([jnp.any(benched & (rank == n) & fainted) for n in range(5)])
+        revive_pending = (st.phase == PHASE_SWITCH) & (side_ex(st, s, "revive") > 0)
         # Moves: PP left, Choice lock, Assault Vest bans status moves, family restrictions; a locked move
         # (Outrage, charge / recharge turns) is the single move action 0, with no Tera and no switching
         locked = locked_slot(st, s) >= 0
@@ -1494,7 +1601,7 @@ def legal_actions(st: Battle):
         tera = mv & ~st.tera_used[s] & ~struggle & ~locked
         # Being locked or trapped only stops switching by choice, not pivot switches or faint replacements
         move_req = jnp.concatenate([mv, tera, sw & ~locked & ~trapped(st, s)])
-        switch_req = jnp.concatenate([jnp.zeros(8, bool), sw])
+        switch_req = jnp.concatenate([jnp.zeros(8, bool), jnp.where(revive_pending, revive_sw, sw)])
         # Sides without a decision this step get a single no-op action (index 0)
         noop = jnp.zeros(N_ACTIONS, bool).at[0].set(True)
         mask = jnp.where(
@@ -1563,12 +1670,19 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
         live & (phase == PHASE_SWITCH),
     )
 
-    # 1. Switches: leads, voluntary switches, or requested replacements / pivot switches
+    # 1. Switches: leads, voluntary switches, or requested replacements / pivot switches (a Revival Blessing
+    # request revives the chosen fainted Pokemon instead)
     is_switch_action = actions >= A_SWITCH
-    wants = jnp.where(in_preview, True, jnp.where(in_move, is_switch_action, in_switch & st.need_switch))
+    revive = jnp.stack([in_switch & st.need_switch[s] & (side_ex(st, s, "revive") > 0) for s in (0, 1)])
+    wants = jnp.where(in_preview, True, jnp.where(in_move, is_switch_action, in_switch & st.need_switch & ~revive))
     target_slot = jnp.stack([jnp.where(in_preview, actions[s], switch_target(st, s, actions[s])) for s in (0, 1)])
     st = do_switches(st, wants, target_slot, keys[0], cfg, together=in_preview | in_switch)
+    for s in (0, 1):
+        st = revive_member(st, s, target_slot[s], revive[s])
     st = st.replace(need_switch=jnp.where(in_switch, False, st.need_switch))
+    # Entry effects can ask for another switch right away (Eject Pack after Intimidate or Sticky Web)
+    st, need = process_flags(st, keys[7], cfg, live)
+    suspended = jnp.any(need)
 
     # 2. Terastallization (after switches, before moves)
     tera = in_move & (actions >= A_TERA) & (actions < A_SWITCH)
@@ -1592,39 +1706,55 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     prio = jnp.stack([_i(MOVES[move_ids[s], MC["priority"]]) for s in (0, 1)])
     for h in hooks.handlers("priority"):
         prio = jnp.stack([h(st, s, move_ids[s], prio[s]) for s in (0, 1)])
+    # Fractional priority (Quick Claw, Custap Berry): first within the priority bracket
+    frac = jnp.zeros(2, jnp.int32)
+    for h in hooks.handlers("fractional_priority"):
+        for s in (0, 1):
+            st, first = h(st, s, move_ids[s], prio[s], in_move & uses_move[s], jax.random.fold_in(keys[5], s), cfg)
+            frac = frac.at[s].set(jnp.maximum(frac[s], first.astype(jnp.int32)))
     spe = jnp.stack([action_speed(st, 0), action_speed(st, 1)])
-    first0 = p1_first(keys[1], prio, spe, cfg)
+    first0 = p1_first(keys[1], prio * 2 + frac, spe, cfg)
     order = jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
+
+    # A switch request raised by the switches above holds every move until it is answered
+    queued = jnp.where(suspended & uses_move, move_action, NO_ACTION)
+    resume_after = jnp.where(
+        jnp.any(queued >= 0),
+        RESUME_SECOND_MOVE,
+        jnp.where(in_move | (resume == RESUME_SECOND_MOVE), RESUME_END_OF_TURN, resume),
+    ).astype(jnp.int8)
+    start_active = st.active
 
     # Both movers run through one traced run_move (fori_loop over the turn order): tracing it once per mover
     # doubled the compiled step, and XLA's compile memory with it
     def mover(i, carry):
-        st, pivot_side, resume_after, queued, uses_move = carry
+        st, queued, resume_after, need, suspended = carry
         s = order[i]
         o = 1 - s
         first = i == 0
-        # Showdown ends the battle the moment a side has nothing left, so nobody acts after that
+        # Showdown ends the battle the moment a side has nothing left, so nobody acts after that; a Pokemon
+        # that was dragged out or ejected before its turn doesn't act either
         decided_now = jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)
-        go = uses_move[s] & (pivot_side < 0) & ~decided_now
+        go = uses_move[s] & ~suspended & ~decided_now & (st.active[s] == start_active[s])
         last = ~(uses_move[o] & first)
         foe_pending = jnp.where(first & uses_move[o], move_ids[o], 0)
         ms = move_slot[s]
         for h in hooks.handlers("override_move"):
             ms = jnp.where(struggle[s], ms, h(st, s, ms))
-        st, pivot = run_move(st, s, ms, struggle[s], go, last, keys[2 + i], cfg, foe_pending)
-        pivot = go & pivot
-        # A pivot suspends the turn: remember the other side's move if it still has to act
-        queued = jnp.where(pivot & first & uses_move[o], queued.at[o].set(move_action[o]), queued)
-        after = jnp.where(first, jnp.int8(RESUME_SECOND_MOVE), jnp.int8(RESUME_END_OF_TURN))
-        resume_after = jnp.where(pivot, after, resume_after)
-        pivot_side = jnp.where(pivot, s, pivot_side)
-        # The second mover's move only runs if no pivot happened
-        uses_move = jnp.where(first, uses_move.at[o].set(uses_move[o] & ~pivot), uses_move)
-        return st, pivot_side, resume_after, queued, uses_move
+        st, _ = run_move(st, s, ms, struggle[s], go, last, keys[2 + i], cfg, foe_pending)
+        # Forced switches (Roar, Red Card) happen now; switch requests (pivots, Eject Button / Pack) suspend the
+        # turn, remembering the other side's move if it still has to act
+        st, need_i = process_flags(st, jax.random.fold_in(keys[7], i + 1), cfg, go)
+        now = go & jnp.any(need_i)
+        pending = first & uses_move[o] & (st.active[o] == start_active[o]) & ~need_i[o]
+        queued = jnp.where(now & pending, queued.at[o].set(move_action[o]), queued)
+        after = jnp.where(pending, jnp.int8(RESUME_SECOND_MOVE), jnp.int8(RESUME_END_OF_TURN))
+        resume_after = jnp.where(now, after, resume_after).astype(jnp.int8)
+        need = jnp.where(now, need_i, need)
+        return st, queued, resume_after, need, suspended | now
 
-    carry = (st, jnp.int32(-1), jnp.int8(RESUME_NONE), jnp.full((2,), NO_ACTION, jnp.int32), uses_move)
-    st, pivot_side, resume_after, queued, uses_move = jax.lax.fori_loop(0, 2, mover, carry)
-    suspended = pivot_side >= 0
+    carry = (st, queued, resume_after, need, suspended)
+    st, queued, resume_after, need, suspended = jax.lax.fori_loop(0, 2, mover, carry)
 
     # 4. End of turn
     decided = jnp.any(jnp.sum(alive_mask(st), axis=1) == 0)  # Showdown stops as soon as a side is out
@@ -1632,10 +1762,10 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     st = end_of_turn(st, keys[6], cfg, eot)
 
     # 5. Next request
-    return next_request(st, suspended, pivot_side, resume_after, queued, in_preview | eot, live)
+    return next_request(st, suspended, need, resume_after, queued, in_preview | eot, live)
 
 
-def next_request(st: Battle, suspended, pivot_side, resume_after, queued, turn_over, live):
+def next_request(st: Battle, suspended, flag_need, resume_after, queued, turn_over, live):
     alive = alive_mask(st)
     left = jnp.sum(alive, axis=1)
     # Battle.checkWin: when both sides are out at once, the side whose Pokemon fainted last wins
@@ -1650,8 +1780,7 @@ def next_request(st: Battle, suspended, pivot_side, resume_after, queued, turn_o
     active_fainted = jnp.stack([st.hp[s, act(st, s)] <= 0 for s in (0, 1)])
     has_bench = jnp.stack([jnp.any(alive[s]) for s in (0, 1)])
     faint_switch = active_fainted & has_bench
-    pivot_need = jnp.stack([pivot_side == 0, pivot_side == 1])
-    need = jnp.where(suspended, pivot_need, faint_switch)
+    need = jnp.where(suspended, flag_need, faint_switch)
     to_switch = ~over & jnp.any(need)
     phase = jnp.where(over, st.phase, jnp.where(to_switch, PHASE_SWITCH, PHASE_MOVE))
     resume = jnp.where(suspended, resume_after, RESUME_NONE)

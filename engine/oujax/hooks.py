@@ -40,6 +40,20 @@ Events (arguments after the state; return value):
   legal_moves(st, side, mask)           -> mask            (4,) bool move legality (Encore, Taunt, ...)
   speed(st, side, mod)                  -> mod             4096-based Speed modifier chain
   priority(st, side, mid, prio)         -> prio
+  fractional_priority(st, side, mid, prio, cond, key, cfg) -> (st, first)  moves first within its priority
+                                                           bracket (Quick Claw, Custap Berry); cond = side chose a
+                                                           move this turn (decided once, when the turn starts)
+  boost_applied(st, side, applied, cond) -> st             after any stat-stage change, the holder's own included;
+                                                           applied = (7,) actual changes (White Herb, Eject Pack)
+  item_update(st, side)                 -> st              Showdown's Update for side's active Pokemon: berries and
+                                                           herbs that react to HP, status, PP or stages (runs
+                                                           wherever the engine checks Sitrus Berry)
+  terrain_change(st, cond)              -> st              Showdown's TerrainChange, after a terrain was set (seeds)
+  secondaries_blocked(st, s, o)         -> blocked         ModifySecondaries: side o's Pokemon ignores the secondary
+                                                           effects of side s's move (Covert Cloak, Shield Dust)
+  drain_heal(st, s, amount)             -> amount          HP a drain move restores to side s (Big Root)
+  charge_move(st, ctx)                  -> (st, skip)      ChargeMove: a two-turn move skips its charge turn (Power
+                                                           Herb); for the charge-move family to call
   status_immune(st, side, slot, status) -> immune
   can_heal(st, side, slot)              -> allowed
   boost_change(st, side, deltas, from_foe) -> deltas       stat-stage changes before they apply
@@ -88,6 +102,8 @@ EVENTS = {
     "switch_in_slot",
     "locked_move", "override_move", "trapped", "call_move", "grounded", "types", "accuracy_mod", "hit_count",
     "enter", "after_boost", "reflect", "after_status", "secondaries", "indirect_damage", "volatile_immune",
+    "fractional_priority", "boost_applied", "item_update", "terrain_change", "secondaries_blocked",
+    "drain_heal", "charge_move",
 }  # fmt: skip
 
 _hooks: Dict[str, List[Tuple[float, int, Callable]]] = defaultdict(list)

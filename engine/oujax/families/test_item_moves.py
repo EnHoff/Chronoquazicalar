@@ -1,5 +1,5 @@
 """
-L2 scenarios for the item_moves family (Trick, Switcheroo), played in OU-JAX and
+L2 scenarios for the item_moves family (Trick, Switcheroo, Thief, Ceaseless Edge, Stone Axe), played in OU-JAX and
 in Showdown with forced outcomes and compared after every step (see engine/oujax/test_l2.py for the action
 encoding).
 """
@@ -53,6 +53,21 @@ class TestItemMoves(MirrorScenarios, unittest.TestCase):
         ogerpon = mon("Ogerpon-Wellspring", "Wellspring Mask", "Water Absorb",
                       ["Switcheroo", "Ivy Cudgel", "Horn Leech", "U-turn"], tera="Water")  # fmt: skip
         self.play(team(ogerpon, PEX), team(bolt("Leftovers"), CORV), [(0, 0), (0, 3), (1, 0), (0, 3)])
+
+    def test_thief(self):
+        # Not through a Substitute; an item-less Thief user takes the Leftovers; with an item it takes nothing
+        thief = mon("Weavile", None, "Pressure", ["Thief", "Knock Off", "Swords Dance", "Protect"],
+                    evs="252 Atk / 4 SpD / 252 Spe", nature="Jolly", tera="Ice")  # fmt: skip
+        self.play(team(thief, PEX), team(gambit("Leftovers"), CORV), [(0, 0), (3, 3), (0, 2), (0, 8), (0, 1)])
+
+    def test_ceaseless_edge_and_stone_axe(self):
+        # Each hit adds a Spikes layer (also through a Substitute, up to three); Stone Axe sets Stealth Rock
+        samurott = mon("Samurott-Hisui", "Leftovers", "Sharpness", ["Ceaseless Edge", "Razor Shell", "Aqua Jet",
+                       "Knock Off"], tera="Dark")  # fmt: skip
+        kleavor = mon("Kleavor", "Leftovers", "Sharpness", ["Stone Axe", "X-Scissor", "U-turn", "Close Combat"],
+                      tera="Rock")  # fmt: skip
+        script = [(0, 0), (0, 3), (0, 1), (0, 1), (0, 1), (8, 1), (0, 1)]
+        self.play(team(samurott, kleavor), team(gambit("Leftovers"), CORV), script)
 
 
 if __name__ == "__main__":

@@ -206,10 +206,12 @@ class Mirror:
                     out.append(f"p{s + 1}.can_tera: ours={not can_tera} showdown={can_tera}")
             if kind in ("move", "switch"):
                 side_mons = req["side"]["pokemon"]
+                # Revival Blessing's request (a switch request from Showdown's side) picks a fainted Pokemon
+                revive = kind == "switch" and int(st.side_ex[s, hooks.SIDE.index["revive"]]) > 0
                 sd_switch = sorted(
                     p["ident"].split(": ")[1]
                     for p in side_mons
-                    if not p["active"] and not p["condition"].endswith(" fnt")
+                    if not p["active"] and p["condition"].endswith(" fnt") == revive
                 )
                 ours_switch = sorted(
                     self.names[s][int(switch_target(st, s, A_SWITCH + n))] for n in range(5) if legal[s, A_SWITCH + n]

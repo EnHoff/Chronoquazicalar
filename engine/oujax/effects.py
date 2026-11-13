@@ -26,7 +26,9 @@ ITEM = _ns(
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
     "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
     "powerherb focussash "
-    "clearamulet",  # M3 stat_abilities (blocks stat drops from the foe)
+    "clearamulet "  # M3 stat_abilities (blocks stat drops from the foe)
+    # M3 forced_switch family
+    "ejectbutton redcard ejectpack",
 )
 ABILITY = _ns(
     T.ability_ids,
