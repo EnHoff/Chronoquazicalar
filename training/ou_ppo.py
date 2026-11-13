@@ -340,7 +340,8 @@ def main(argv=None):
     latest = ckpt_dir / "latest.pkl"
     if latest.exists():
         ck = pickle.load(open(latest, "rb"))
-        params, opt_state, league = ck["params"], ck["opt_state"], ck["league"]
+        # Pickled state comes back as NumPy arrays: back to JAX arrays (the league update uses .at[])
+        params, opt_state, league = jax.tree.map(jnp.asarray, (ck["params"], ck["opt_state"], ck["league"]))
         update_i, env_steps, league_next = ck["update"], ck["env_steps"], ck["league_next"]
         print(f"resumed from update {update_i} ({env_steps} env steps)", flush=True)
     print(f"params: {n_params / 1e6:.2f}M", flush=True)
@@ -363,64 +364,74 @@ def main(argv=None):
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    while time.time() < deadline and not stop["now"]:
-        t0 = time.time()
-        key, k_roll, k_perm = jax.random.split(key, 3)
-        envs, traj, last_v, stats = rollout(params, league, envs, k_roll, args.steps)
-        adv, ret = gae(traj, last_v)
-        flat = flatten(traj, adv, ret)
-        n = flat["act"].shape[0]
-        mb = n // args.minibatches
-        for ep in range(args.epochs):
-            perm = jax.random.permutation(jax.random.fold_in(k_perm, ep), n)
-            for i in range(args.minibatches):
-                idx = perm[i * mb : (i + 1) * mb]
-                batch = jax.tree.map(lambda x: x[idx], flat)
-                params, opt_state, aux = update(params, opt_state, batch)
-                if ep == 0 and i == 0:
-                    aux0 = aux
-        jax.block_until_ready(params)
-        dt = time.time() - t0
-        update_i += 1
-        env_steps += args.batch * args.steps
-        if update_i % args.league_every == 0:
-            league = jax.tree.map(lambda lg, p: lg.at[league_next % args.league].set(p), league, params)
-            league_next += 1
-        s = {k: int(v) for k, v in jax.device_get(stats).items()}
-        if s["rand_games"]:
-            win_hist.append((s["rand_wins"], s["rand_games"]))
-        win_hist = win_hist[-20:]
-        rw, rg = sum(w for w, _ in win_hist), sum(g for _, g in win_hist)
-        row = {
-            "update": update_i,
-            "env_steps": env_steps,
-            "hours": round((time.time() - t_start) / 3600, 3),
-            "steps_per_s": round(args.batch * args.steps / dt),
-            "episodes": s["episodes"],
-            "winrate_vs_random": round(rw / rg, 3) if rg else None,
-            "random_games_window": rg,
-            "league_wr": round(s["league_wins"] / s["league_games"], 3) if s["league_games"] else None,
-            **{k: round(float(v), 4) for k, v in jax.device_get(aux).items()},
-            "ratio_dev_first_mb": round(float(aux0["ratio_dev"]), 4),
-        }
-        if update_i == 1:
-            row["setup_s"] = round(t0 - t_setup)
-            row["first_update_s"] = round(dt, 1)
-            try:
-                row["gpu_peak_mb"] = jax.devices()[0].memory_stats()["peak_bytes_in_use"] // 2**20
-            except Exception:
-                pass
-        with open(metrics_path, "a") as f:
-            f.write(json.dumps(row) + "\n")
-        if update_i % 10 == 1:
-            print(json.dumps(row), flush=True)
-        if time.time() - last_ckpt > args.ckpt_minutes * 60 or time.time() >= deadline or stop["now"]:
-            ck = {"params": params, "opt_state": opt_state, "league": league, "update": update_i,
-                  "env_steps": env_steps, "league_next": league_next, "args": vars(args)}  # fmt: skip
-            save(latest, ck)
-            save(ckpt_dir / f"policy_{update_i:06d}.pkl", {"params": params, "args": vars(args), "update": update_i})
-            last_ckpt = time.time()
-            print(f"checkpoint at update {update_i}", flush=True)
+
+    def checkpoint(tag="checkpoint"):
+        ck = {"params": params, "opt_state": opt_state, "league": league, "update": update_i,
+              "env_steps": env_steps, "league_next": league_next, "args": vars(args)}  # fmt: skip
+        save(latest, ck)
+        save(ckpt_dir / f"policy_{update_i:06d}.pkl", {"params": params, "args": vars(args), "update": update_i})
+        print(f"{tag} at update {update_i}", flush=True)
+
+    try:
+        while time.time() < deadline and not stop["now"]:
+            t0 = time.time()
+            key, k_roll, k_perm = jax.random.split(key, 3)
+            envs, traj, last_v, stats = rollout(params, league, envs, k_roll, args.steps)
+            adv, ret = gae(traj, last_v)
+            flat = flatten(traj, adv, ret)
+            n = flat["act"].shape[0]
+            mb = n // args.minibatches
+            for ep in range(args.epochs):
+                perm = jax.random.permutation(jax.random.fold_in(k_perm, ep), n)
+                for i in range(args.minibatches):
+                    idx = perm[i * mb : (i + 1) * mb]
+                    batch = jax.tree.map(lambda x: x[idx], flat)
+                    params, opt_state, aux = update(params, opt_state, batch)
+                    if ep == 0 and i == 0:
+                        aux0 = aux
+            jax.block_until_ready(params)
+            dt = time.time() - t0
+            update_i += 1
+            env_steps += args.batch * args.steps
+            if update_i % args.league_every == 0:
+                league = jax.tree.map(lambda lg, p: lg.at[league_next % args.league].set(p), league, params)
+                league_next += 1
+            s = {k: int(v) for k, v in jax.device_get(stats).items()}
+            if s["rand_games"]:
+                win_hist.append((s["rand_wins"], s["rand_games"]))
+            win_hist = win_hist[-20:]
+            rw, rg = sum(w for w, _ in win_hist), sum(g for _, g in win_hist)
+            row = {
+                "update": update_i,
+                "env_steps": env_steps,
+                "hours": round((time.time() - t_start) / 3600, 3),
+                "steps_per_s": round(args.batch * args.steps / dt),
+                "episodes": s["episodes"],
+                "winrate_vs_random": round(rw / rg, 3) if rg else None,
+                "random_games_window": rg,
+                "league_wr": round(s["league_wins"] / s["league_games"], 3) if s["league_games"] else None,
+                **{k: round(float(v), 4) for k, v in jax.device_get(aux).items()},
+                "ratio_dev_first_mb": round(float(aux0["ratio_dev"]), 4),
+            }
+            if update_i == 1:
+                row["setup_s"] = round(t0 - t_setup)
+                row["first_update_s"] = round(dt, 1)
+                try:
+                    row["gpu_peak_mb"] = jax.devices()[0].memory_stats()["peak_bytes_in_use"] // 2**20
+                except Exception:
+                    pass
+            with open(metrics_path, "a") as f:
+                f.write(json.dumps(row) + "\n")
+            if update_i % 10 == 1:
+                print(json.dumps(row), flush=True)
+            if time.time() - last_ckpt > args.ckpt_minutes * 60 or time.time() >= deadline or stop["now"]:
+                checkpoint()
+                last_ckpt = time.time()
+
+    except Exception:
+        # A crash still leaves a resumable checkpoint (from the last completed update)
+        checkpoint("crash checkpoint")
+        raise
 
 
 if __name__ == "__main__":
