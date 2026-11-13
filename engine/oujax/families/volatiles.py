@@ -106,6 +106,8 @@ def add_confusion(st, s, cond, key, cfg, min_turns=2):
     slot = act(st, s)
     misty = (st.terrain == M_TERRAIN) & grounded(st, s, slot)
     ok = cond & (vol(st, s, "confusion") == 0) & (st.hp[s, slot] > 0) & ~misty
+    for h in hooks.handlers("volatile_immune"):
+        ok &= ~h(st, s, "confusion")  # Own Tempo
     turns = jnp.int32(min_turns) if cfg.forced else jax.random.randint(key, (), min_turns, 6)
     return set_vol(st, s, "confusion", turns, ok), ok
 

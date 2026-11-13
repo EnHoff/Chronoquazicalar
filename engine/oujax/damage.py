@@ -116,6 +116,7 @@ class Combatant(NamedTuple):
     stellar_used: jnp.ndarray = 0  # bitmask of move types that already got their Stellar Tera boost
     hp: jnp.ndarray = -1  # current HP; -1 = full
     fallen: jnp.ndarray = 0  # Supreme Overlord: fainted teammates counted on switch-in (0..5)
+    flashfire: jnp.ndarray = False  # Flash Fire activated (1.5x Fire attacks while it keeps the ability)
     spe: jnp.ndarray = -1  # Pokemon.getStat('spe') (boosts and ModifySpe, no Trick Room); -1 = boosted stat only
     air: jnp.ndarray = 0  # engine.air_state: 1 = grounded by Gravity / Smack Down, 2 = airborne by Magnet Rise
 
@@ -167,6 +168,13 @@ def boosted_stat(stat, boost):
     b = jnp.clip(boost, -6, 6)
     num = _BOOST_NUM[jnp.abs(b)]
     return jnp.where(b >= 0, stat * num // 2, stat * 2 // num)
+
+
+def scrappy_types(def_types, move_type, att_ability):
+    """Scrappy / Mind's Eye (ignoreImmunity Normal and Fighting): those moves treat a Ghost type as neutral."""
+    scrappy = (att_ability == T.ability_ids["scrappy"]) | (att_ability == T.ability_ids["mindseye"])
+    hits = scrappy & ((move_type == TY["normal"]) | (move_type == TY["fighting"]))
+    return jnp.where(hits & (def_types == TY["ghost"]), TYPE_NONE, def_types)
 
 
 def type_effectiveness(move_type, def_types, move_id=None):
@@ -314,7 +322,7 @@ def effective_defender(att: Combatant, dfn: Combatant, move_id=None) -> Combatan
     return dfn._replace(ability=jnp.where(ignore & BREAKABLE_J[dfn.ability], 0, dfn.ability))
 
 
-def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit) -> Parts:
+def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit, no_crit=False) -> Parts:
     """Per-move part of the formula for a given crit outcome (see Parts)."""
     dfn = effective_defender(att, dfn, move_id)
     row = MOVES[move_id]
@@ -322,13 +330,14 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     physical = category == 0
     flags = row[MC["flags"]]
     crit = crit | (row[MC["crit_ratio"]] >= 5)  # willCrit moves (Flower Trick, Wicked Blow, ...)
+    crit = crit & ~jnp.asarray(no_crit)  # Shell Armor / Battle Armor
     mtype, bp = move_type_and_bp(move_id, att, dfn, field.weather)
     # Rising Voltage: double power against a grounded target in Electric Terrain (basePowerCallback)
     bp = jnp.where((move_id == RISING_VOLTAGE) & (field.terrain == TERRAIN_ELECTRIC) & is_grounded(dfn), bp * 2, bp)
     att_types, def_types = current_types(att), current_types(dfn)
     att_hp = current_hp(att)
 
-    immune, type_mod = type_effectiveness(mtype, def_types, move_id)
+    immune, type_mod = type_effectiveness(mtype, scrappy_types(def_types, mtype, att.ability), move_id)
     # Ground immunity is Pokemon.isGrounded alone (Gravity, Smack Down ground a Flying type: neutral there)
     is_ground = mtype == TY["ground"]
     immune = jnp.where(is_ground, ~is_grounded(dfn), immune)
@@ -451,6 +460,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     a = chain_if(a, (att.ability == ABILITY.waterbubble) & (mtype == TY["water"]), M_2)
     a = chain_if(a, ~physical & (att.ability == ABILITY.solarpower) & (field.weather == WEATHER_SUN), M_1_5)
     a = chain_if(a, att.paradox_stat == event_stat, M_1_3)
+    a = chain_if(a, att.flashfire & (att.ability == T.ability_ids["flashfire"]) & (mtype == TY["fire"]), M_1_5)
     a = chain_if(a, physical & (att.item == ITEM.choiceband), M_1_5)  # 1
     a = chain_if(a, ~physical & (att.item == ITEM.choicespecs), M_1_5)
     a = chain_if(

@@ -5,15 +5,20 @@ module and importing it here.
 """
 
 from engine.oujax.families import (  # noqa: F401
+    absorb_abilities,
     call_moves,
     charge_moves,
+    contact_abilities,
     damage_moves,
+    entry_abilities,
     field_moves,
     held_items,
     item_moves,
     move_misc,
+    passive_abilities,
     power_moves,
     slot_conditions,
+    stat_abilities,
     status_moves,
     trapping,
     volatiles,

@@ -214,8 +214,9 @@ class Mirror:
                 ours_switch = sorted(
                     self.names[s][int(switch_target(st, s, A_SWITCH + n))] for n in range(5) if legal[s, A_SWITCH + n]
                 )
-                if req.get("active") and req["active"][0].get("trapped"):
-                    sd_switch = []
+                active_mon = next((p for p in sd["sides"][s]["pokemon"] if p["active"]), {})
+                if kind == "move" and (req["active"][0].get("trapped") or active_mon.get("trapped")):
+                    sd_switch = []  # trapped, also by a hidden trap (Magnet Pull) the request shows as maybeTrapped
                 if ours_switch != sd_switch:
                     out.append(f"p{s + 1}.legal_switches: ours={ours_switch} showdown={sd_switch}")
         return out

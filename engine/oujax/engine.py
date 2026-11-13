@@ -39,6 +39,7 @@ from engine.oujax.damage import (
     modify,
     move_category,
     move_type_and_bp,
+    scrappy_types,
     type_effectiveness,
 )
 from engine.oujax.effects import ABILITY, BREAKABLE, ITEM, ITEM_REMOVABLE, T
@@ -259,6 +260,11 @@ def ignores_abilities_ab(ability):
     return (ability == ABILITY.moldbreaker) | (ability == ABILITY.teravolt) | (ability == ABILITY.turboblaze)
 
 
+def sticky_hold(st: Battle, s, slot, attacker_ability):
+    """Sticky Hold keeps side s's item from being taken by the foe (unless a Mold Breaker-type attacker)."""
+    return (st.ability[s, slot] == ABILITY.stickyhold) & (st.hp[s, slot] > 0) & ~ignores_abilities_ab(attacker_ability)
+
+
 def mon(arr, s, slot):
     return arr[s, slot]
 
@@ -316,6 +322,13 @@ def grounded(st: Battle, s, slot):
     return (air == 1) | ((air == 0) & base)
 
 
+def paradox_now(st: Battle, s):
+    """Protosynthesis / Quark Drive boosted stat, 0 while the ability is suppressed."""
+    ab = st.ability[s, jnp.maximum(act(st, s), 0)]
+    working = (ab == ABILITY.protosynthesis) | (ab == ABILITY.quarkdrive)
+    return jnp.where(working, _i(st.paradox_stat[s]), 0)
+
+
 def combatant(st: Battle, s) -> Combatant:
     slot = act(st, s)
     base = st.base_types[s, slot].astype(jnp.int32)
@@ -333,10 +346,11 @@ def combatant(st: Battle, s) -> Combatant:
         status=_i(st.status[s, slot]),
         item=_i(st.item[s, slot]),
         ability=_i(st.ability[s, slot]),
-        paradox_stat=_i(st.paradox_stat[s]),
+        paradox_stat=paradox_now(st, s),
         stellar_used=st.stellar_used[s, slot],
         hp=_i(st.hp[s, slot]),
         fallen=_i(st.overlord_fallen[s]),
+        flashfire=(vol(st, s, "flashfire") > 0) if "flashfire" in hooks.VOL.index else False,
         spe=stat_speed(st, s),
         air=air_state(st, s, slot),
     )
@@ -361,9 +375,13 @@ def set_hp(st: Battle, s, slot, hp):
     )
 
 
-def lose_hp(st: Battle, s, slot, amount, cond=True):
-    """Battle.damage for a non-move source: truncate, at least 1, never below 0. Ignored when cond is False."""
+def lose_hp(st: Battle, s, slot, amount, cond=True, direct=False):
+    """Battle.damage for a non-move source: truncate, at least 1, never below 0. Ignored when cond is False.
+    direct: Battle.directDamage (Substitute, Belly Drum, Struggle recoil), which indirect_damage hooks don't stop."""
     amount = jnp.maximum(_i(amount), 1)
+    if not direct:
+        for h in hooks.handlers("indirect_damage"):
+            cond = cond & h(st, s, slot)
     new = jnp.where(cond & (st.hp[s, slot] > 0), _i(st.hp[s, slot]) - amount, _i(st.hp[s, slot]))
     return set_hp(st, s, slot, new)
 
@@ -378,15 +396,22 @@ def gain_hp(st: Battle, s, slot, amount, cond=True):
     return set_hp(st, s, slot, new)
 
 
-def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False):
+def apply_boosts(st: Battle, s, deltas, cond=True, from_foe=False, depth=0):
     """Add stat stage changes to side s's active Pokemon. Returns (state, whether any stage changed).
-    from_foe: the change comes from the opposing Pokemon (Intimidate, a foe's move), for boost_change hooks."""
-    deltas = jnp.asarray(deltas, jnp.int32)
+    from_foe: the change comes from the opposing Pokemon (Intimidate, a foe's move), for boost_change hooks.
+    depth: 1 when an after_boost hook boosts again (Mirror Armor's reflection), which runs no after_boost hooks.
+    after_boost hooks only react to changes from the foe, so they aren't traced for from_foe=False calls."""
+    raw = jnp.where(cond, jnp.asarray(deltas, jnp.int32), 0)
+    deltas = raw
     for h in hooks.handlers("boost_change"):
         deltas = h(st, s, deltas, from_foe)
     old = st.boosts[s].astype(jnp.int32)
     new = jnp.clip(old + jnp.where(cond, deltas, 0), -6, 6)
-    return st.replace(boosts=st.boosts.at[s].set(new.astype(st.boosts.dtype))), jnp.any(new != old)
+    st = st.replace(boosts=st.boosts.at[s].set(new.astype(st.boosts.dtype)))
+    if depth == 0 and from_foe is not False:
+        for h in hooks.handlers("after_boost"):
+            st = h(st, s, old, new, raw, from_foe, depth)
+    return st, jnp.any(new != old)
 
 
 def eat_sitrus(st: Battle, s):
@@ -400,7 +425,8 @@ def eat_sitrus(st: Battle, s):
     return st.replace(item=st.item.at[s, slot].set(jnp.where(eat, 0, st.item[s, slot])))
 
 
-def status_immune(st: Battle, s, slot, status):
+def status_immune(st: Battle, s, slot, status, poison_types=True):
+    """poison_types=False: Poison / Steel types can be poisoned (the source has Corrosion)."""
     t = types_now(st, s, slot)
     ab = st.ability[s, slot]
     family = jnp.bool_(False)
@@ -412,14 +438,21 @@ def status_immune(st: Battle, s, slot, status):
         | ((status == BRN) & ((ab == ABILITY.waterbubble) | (ab == ABILITY.waterveil)))
         | ((status == BRN) & has_type(t, TY["fire"]))
         | ((status == PAR) & has_type(t, TY["electric"]))
-        | (((status == PSN) | (status == TOX)) & (has_type(t, TY["poison"]) | has_type(t, TY["steel"])))
+        | (
+            ((status == PSN) | (status == TOX))
+            & (has_type(t, TY["poison"]) | has_type(t, TY["steel"]))
+            & jnp.asarray(poison_types)
+        )
         | ((status == FRZ) & has_type(t, TY["ice"]))
     )
 
 
-def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True, cond=True):
+def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True, cond=True, hazard=False, hook=True):
     """Pokemon.trySetStatus with Showdown's status immunities, terrain blocks and Sleep Clause.
-    Returns (state, applied)."""
+    from_foe: the opposing active Pokemon is the source (its Corrosion applies; after_status hooks see it);
+    hazard: Toxic Spikes; hook=False skips the after_status hooks. Returns (state, applied)."""
+    foe_ab = st.ability[foe(s), jnp.maximum(act(st, foe(s)), 0)]
+    corrosion = jnp.asarray(from_foe) & ~jnp.asarray(hazard) & (foe_ab == ABILITY.corrosion)
     is_grounded_ = grounded(st, s, slot)
     misty = (st.terrain == M_TERRAIN) & is_grounded_
     electric_sleep = (st.terrain == E_TERRAIN) & is_grounded_ & (status == SLP)
@@ -430,7 +463,7 @@ def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True,
         & (status > 0)
         & (st.hp[s, slot] > 0)
         & (st.status[s, slot] == 0)
-        & ~status_immune(st, s, slot, status)
+        & ~status_immune(st, s, slot, status, poison_types=~corrosion)
         & ~misty
         & ~electric_sleep
         & ~sleep_clause
@@ -442,6 +475,9 @@ def try_set_status(st: Battle, s, slot, status, key, cfg: Config, from_foe=True,
         status_turns=st.status_turns.at[s, slot].set(jnp.where(ok, turns, st.status_turns[s, slot]).astype(jnp.int8)),
         self_sleep=st.self_sleep.at[s, slot].set(jnp.where(ok, False, st.self_sleep[s, slot])),
     )
+    if hook:
+        for h in hooks.handlers("after_status"):
+            st = h(st, s, slot, status, jnp.asarray(from_foe) & ~jnp.asarray(hazard), key, cfg, ok)
     return st, ok
 
 
@@ -462,7 +498,7 @@ def stat_speed(st: Battle, s):
     mod = jnp.int32(4096)
     mod = chain_if(mod, (st.status[s, slot] == PAR), M_0_5)
     mod = chain_if(mod, st.item[s, slot] == ITEM.choicescarf, M_1_5)
-    mod = chain_if(mod, st.paradox_stat[s] == 5, M_1_5)
+    mod = chain_if(mod, paradox_now(st, s) == 5, M_1_5)
     w = SPEED_ABILITY_WEATHER[st.ability[s, slot]]
     mod = chain_if(mod, (w > 0) & (w == st.weather), M_2)
     mod = chain_if(mod, st.tailwind[s] > 0, M_2)
@@ -491,7 +527,8 @@ def refresh_paradox(st: Battle):
         ab = st.ability[s, slot]
         proto, quark = ab == ABILITY.protosynthesis, ab == ABILITY.quarkdrive
         field_on = (proto & (st.weather == SUN)) | (quark & (st.terrain == E_TERRAIN))
-        ends = (st.paradox_stat[s] > 0) & ~field_on & ~st.paradox_from_item[s]
+        # A suppressed ability (Neutralizing Gas) keeps its boost, inert until the ability is back
+        ends = (st.paradox_stat[s] > 0) & ~field_on & ~st.paradox_from_item[s] & (proto | quark)
         current = jnp.where(ends, 0, st.paradox_stat[s])
         item = st.item[s, slot]
         use_booster = on_field & (proto | quark) & ~field_on & (item == ITEM.boosterenergy) & (current == 0)
@@ -513,8 +550,9 @@ def best_stat(st: Battle, s, slot):
     return jnp.argmax(vals) + 1
 
 
-def set_weather(st: Battle, weather, s, slot, cond):
-    """Field.setWeather from side s's Pokemon: fails if that weather is already up; 8 turns with its rock."""
+def set_weather(st: Battle, weather, s, slot, cond, refresh=True):
+    """Field.setWeather from side s's Pokemon: fails if that weather is already up; 8 turns with its rock.
+    refresh=False leaves refresh_paradox to the caller (which runs it right after)."""
     rock = jnp.select([weather == w for w in WEATHER_ROCK], [r for r in WEATHER_ROCK.values()], -1)
     turns = jnp.where(st.item[s, slot] == rock, 8, 5)
     ok = cond & (weather > 0) & (st.weather != weather)
@@ -522,17 +560,17 @@ def set_weather(st: Battle, weather, s, slot, cond):
         weather=jnp.where(ok, weather, st.weather).astype(jnp.int8),
         weather_turns=jnp.where(ok, turns, st.weather_turns).astype(jnp.int8),
     )
-    return refresh_paradox(st), ok
+    return (refresh_paradox(st) if refresh else st), ok
 
 
-def set_terrain(st: Battle, terrain, s, slot, cond):
+def set_terrain(st: Battle, terrain, s, slot, cond, refresh=True):
     turns = jnp.where(st.item[s, slot] == ITEM.terrainextender, 8, 5)
     ok = cond & (terrain > 0) & (st.terrain != terrain)
     st = st.replace(
         terrain=jnp.where(ok, terrain, st.terrain).astype(jnp.int8),
         terrain_turns=jnp.where(ok, turns, st.terrain_turns).astype(jnp.int8),
     )
-    return refresh_paradox(st), ok
+    return (refresh_paradox(st) if refresh else st), ok
 
 
 # --- switching -------------------------------------------------------------------------------------
@@ -587,7 +625,10 @@ def enter_field(st: Battle, s, slot, cond):
     )
     # Toxic counter restarts on switch-in
     tox = cond & (st.status[s, slot] == TOX)
-    return st.replace(status_turns=st.status_turns.at[s, slot].set(jnp.where(tox, 0, st.status_turns[s, slot])))
+    st = st.replace(status_turns=st.status_turns.at[s, slot].set(jnp.where(tox, 0, st.status_turns[s, slot])))
+    for h in hooks.handlers("enter"):
+        st = h(st, s, slot, cond)
+    return st
 
 
 def run_switch_in(st: Battle, s, key, cfg: Config, cond):
@@ -618,15 +659,17 @@ def run_switch_in(st: Battle, s, key, cfg: Config, cond):
     absorb = tsp & has_type(t, TY["poison"])
     st = st.replace(hazards=st.hazards.at[s, HAZ_TSPIKES].set(jnp.where(absorb, 0, st.hazards[s, HAZ_TSPIKES])))
     poison = tsp & ~absorb & ~has_type(t, TY["steel"]) & ~boots
-    st, _ = try_set_status(st, s, slot, jnp.where(hz[HAZ_TSPIKES] >= 2, TOX, PSN), key, cfg, from_foe=True, cond=poison)
-    # Sticky Web
+    st, _ = try_set_status(
+        st, s, slot, jnp.where(hz[HAZ_TSPIKES] >= 2, TOX, PSN), key, cfg, from_foe=True, cond=poison, hazard=True
+    )
+    # Sticky Web (its source is the opposing active Pokemon: Defiant, Clear Body, ... react)
     webs = cond & (hz[HAZ_WEBS] > 0) & gr & ~boots & (st.hp[s, slot] > 0)
-    st, _ = apply_boosts(st, s, jnp.array([0, 0, 0, 0, -1, 0, 0]), webs)
+    st, _ = apply_boosts(st, s, jnp.array([0, 0, 0, 0, -1, 0, 0]), webs, from_foe=True)
     st = eat_sitrus(st, s)
     # Ability: weather / terrain setters
     alive = cond & (st.hp[s, slot] > 0)
-    st, _ = set_weather(st, WEATHER_ABILITY[st.ability[s, slot]], s, slot, alive)
-    st, _ = set_terrain(st, TERRAIN_ABILITY[st.ability[s, slot]], s, slot, alive)
+    st, _ = set_weather(st, WEATHER_ABILITY[st.ability[s, slot]], s, slot, alive, refresh=False)
+    st, _ = set_terrain(st, TERRAIN_ABILITY[st.ability[s, slot]], s, slot, alive, refresh=False)
     # Protosynthesis / Quark Drive and Booster Energy
     st = refresh_paradox(st)
     for h in hooks.handlers("switch_in"):
@@ -643,23 +686,31 @@ def switch_target(st: Battle, s, action):
     return jnp.argmax(benched & (rank == n))
 
 
-def do_switches(st: Battle, wants, targets, key, cfg: Config):
+def do_switches(st: Battle, wants, targets, key, cfg: Config, together=False):
     """Switch both sides' Pokemon simultaneously-chosen switches: the faster side switches (and runs its entry
-    effects) first."""
+    effects) first. together: leads and faint replacements, where Showdown puts both Pokemon in before any
+    entry effect runs (then in the new Pokemon's speed order), so Intimidate reaches the other new Pokemon."""
     k_order, k0, k1 = jax.random.split(key, 3)
-    # Leads (nobody active yet) run their entry effects in the order of their own speed
-    lead = st.active < 0
-    st_spe = st.replace(active=jnp.where(lead, targets, st.active).astype(st.active.dtype))
-    spe = jnp.stack([action_speed(st_spe, 0), action_speed(st_spe, 1)])
-    first0 = p1_first(k_order, jnp.zeros(2, jnp.int32), spe, cfg)
-    order = jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
+
+    def order_now(st):
+        spe = jnp.stack([action_speed(st, 0), action_speed(st, 1)])
+        first0 = p1_first(k_order, jnp.zeros(2, jnp.int32), spe, cfg)
+        return jnp.where(first0, jnp.array([0, 1]), jnp.array([1, 0]))
+
+    order = order_now(st)
+    together = jnp.asarray(together)
+    for s in (0, 1):
+        cond = wants[s] & together
+        st = switch_out(st, s, cond & (st.active[s] >= 0))
+        st = enter_field(st, s, targets[s], cond)
+    order = jnp.where(together, order_now(st), order)
     keys = (k0, k1)
     for i in range(2):
         s = order[i]
-        cond = wants[s]
+        cond = wants[s] & ~together
         st = switch_out(st, s, cond & (st.active[s] >= 0))
         st = enter_field(st, s, targets[s], cond)
-        st = run_switch_in(st, s, keys[i], cfg, cond)
+        st = run_switch_in(st, s, keys[i], cfg, wants[s])
     return st
 
 
@@ -784,9 +835,10 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Targeting, then the move's own failure conditions
     no_target = targets_foe & ~target_alive
     fails = no_target | call_fails
-    fails |= targets_foe & blocked_by_psychic_terrain(
-        mid, combatant(st, o), field_info(st, o), MOVES[base_mid, MC["priority"]]
-    )
+    move_prio = _i(MOVES[base_mid, MC["priority"]])
+    for h in hooks.handlers("priority"):
+        move_prio = h(st, s, base_mid, move_prio)
+    fails |= targets_foe & blocked_by_psychic_terrain(mid, combatant(st, o), field_info(st, o), move_prio)
     fails |= (mid == MID["auroraveil"]) & (st.weather != SNOW)
     is_protect = STALLING[mid]
     stall_den = jnp.array([1, 3, 9, 27, 81, 243, 729])[jnp.minimum(st.protect_count[s], 6)]
@@ -825,6 +877,12 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Protect blocks moves with the protect flag aimed at the target
     blocked_by_protect = targets_foe & st.protected[o] & ((flags & FLAG_BIT["protect"]) > 0)
     proceeds_hit = proceeds & ~blocked_by_protect
+    # Magic Bounce: the target uses the move back at the user instead (status effects only, below)
+    bounced, bounce_lands = jnp.bool_(False), jnp.bool_(False)
+    for h in hooks.handlers("reflect"):
+        st, r, lands = h(st, ctx._replace(landed=proceeds_hit, proceeds=proceeds))
+        bounced, bounce_lands = bounced | r, bounce_lands | (r & lands)
+    proceeds_hit &= ~bounced
     # TryHit (Showdown's hitStepTryHitEvent): absorbing abilities, ... run before type immunity and accuracy;
     # ctx.landed here means "reaches the target"
     for h in hooks.handlers("try_hit"):
@@ -893,7 +951,7 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     # Type immunity (damaging moves, and status moves that respect it like Thunder Wave)
     t_types = types_now(st, o, tslot)
     mtype, _ = move_type_and_bp(mid, combatant(st, s), combatant(st, o), _i(st.weather))
-    immune, _ = type_effectiveness(mtype, t_types, mid)
+    immune, _ = type_effectiveness(mtype, scrappy_types(t_types, mtype, st.ability[s, slot]), mid)
     # Levitate doesn't keep a Mold Breaker-type attacker's Ground moves off
     breaks_levitate = ignores_abilities_ab(st.ability[s, slot]) & (st.ability[o, tslot] == ABILITY.levitate)
     breaks_levitate &= air_state(st, o, tslot) != 2  # Magnet Rise keeps it up regardless
@@ -919,9 +977,18 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
         st = h(st, ctx._replace(landed=landed & ~is_status), dealt, hit_sub)
     # Berries wait for the move's secondaries (Psychic Noise's Heal Block stops Sitrus Berry)
     st = eat_sitrus(eat_sitrus(st, o), s)
-    st, pivot_ok = status_phase(st, s, mid, landed & is_status, keys[11], cfg)
+    # A bounced move runs its status effects with user and target swapped
+    st_user = jnp.where(bounced, o, s)
+    st, pivot_ok = status_phase(st, st_user, mid, (landed & is_status) | bounce_lands, keys[11], cfg)
+    pivot_ok &= ~bounced
+    s_ctx = ctx._replace(
+        s=st_user,
+        o=jnp.where(bounced, s, o),
+        slot=jnp.where(bounced, tslot, slot),
+        tslot=jnp.where(bounced, slot, tslot),
+    )
     for h in hooks.handlers("status_move"):
-        st = h(st, ctx._replace(landed=landed & is_status))
+        st = h(st, s_ctx._replace(landed=(landed & is_status) | bounce_lands))
     st = st.replace(protected=st.protected.at[s].set(st.protected[s] | (proceeds & PROTECTS[mid])))
 
     # Pivot: damaging pivots switch if they connected; status pivots per status_phase
@@ -933,7 +1000,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     st = set_vol(st, s, "move_result", result, user_alive)
     for h in hooks.handlers("after_move"):
         st = h(st, ctx)
-    return st, pivot
+    # A pivot needs its user standing after the after-move effects (Destiny Bond can take it down)
+    return st, pivot & (st.hp[s, slot] > 0)
 
 
 def try_rest_allowed(st: Battle, s, slot):
@@ -990,6 +1058,9 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     if ctx is not None:
         for h in hooks.handlers("crit_stage"):
             crit_stage = h(st, ctx, crit_stage)
+    # A negative stage from a hook means the target can't be crit at all (Shell Armor's CriticalHit: false,
+    # which also stops willCrit moves)
+    no_crit = crit_stage < 0
     crit_stage = jnp.clip(crit_stage, 0, 4)
     bypass_sub = ((row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0) | (
         st.ability[s, act(st, s)] == ABILITY.infiltrator
@@ -998,12 +1069,13 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     field = field_info(st, o)
     # The per-move part of the damage formula is computed once (for both crit outcomes); each hit only runs
     # the cheap per-hit part
-    will_crit = row[MC["crit_ratio"]] >= 5
+    will_crit = (row[MC["crit_ratio"]] >= 5) & ~no_crit
     att_c, def_c = combatant(st, s), combatant(st, o)
     if cfg.forced:
-        parts_crit = parts_plain = damage_parts(mid, att_c, def_c, field, jnp.bool_(cfg.crit) | will_crit)
+        forced_crit = (jnp.bool_(cfg.crit) | will_crit) & ~no_crit
+        parts_crit = parts_plain = damage_parts(mid, att_c, def_c, field, forced_crit, no_crit=no_crit)
     else:
-        parts_plain = damage_parts(mid, att_c, def_c, field, will_crit)
+        parts_plain = damage_parts(mid, att_c, def_c, field, will_crit, no_crit=no_crit)
         parts_crit = damage_parts(mid, att_c, def_c, field, jnp.bool_(True))
     maxhp_o = _i(st.stats[o, tslot, 0])
     move_cat = move_category(mid, att_c, def_c)
@@ -1023,7 +1095,7 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         missed = missed | ~acc_ok
         go = active & (h < n_hits) & ~missed & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
         if cfg.forced:
-            crit = jnp.bool_(cfg.crit)
+            crit = jnp.bool_(cfg.crit) & ~no_crit
             roll = jnp.int32(cfg.roll)
         else:
             crit = jax.random.randint(kc, (), 0, CRIT_DEN[jnp.maximum(crit_stage, 1)]) == 0
@@ -1072,8 +1144,9 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         pop = go & (d > 0) & (st.item[o, tslot] == ITEM.airballoon)
         st = st.replace(item=st.item.at[o, tslot].set(jnp.where(pop | berry, 0, st.item[o, tslot])))
         if ctx is not None:
-            # Showdown's DamagingHit: once per hit that damaged the Pokemon itself (contact abilities, ...)
-            hit_mon = go & ~sub_now & (to_mon > 0)
+            # Showdown's DamagingHit: once per hit on the Pokemon itself (contact abilities, ...), also when a
+            # damage_taken hook brought it to 0 (Disguise)
+            hit_mon = go & ~sub_now
             for hk in hooks.handlers("damaging_hit"):
                 st = hk(st, ctx._replace(landed=hit_mon), h, to_mon)
         # Berries activate between hits of a multi-hit move; after the last hit they wait for the move's
@@ -1105,7 +1178,10 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     connected = landed & (dealt > 0)
     # Drain
     drain = (row[MC["drain_num"]] > 0) & connected
-    st = gain_hp(st, s, slot, js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]]), drain)
+    drained = js_round_div(dealt * row[MC["drain_num"]], row[MC["drain_den"]])
+    ooze = st.ability[o, tslot] == ABILITY.liquidooze  # Liquid Ooze turns the drain into damage
+    st = gain_hp(st, s, slot, drained, drain & ~ooze)
+    st = lose_hp(st, s, slot, drained, drain & ooze)
     # Rocky Helmet on contact (not through a substitute; Punching Glove makes punches non-contact)
     punch = (row[MC["flags"]] & FLAG_BIT["punch"]) > 0
     contact = ((row[MC["flags"]] & FLAG_BIT["contact"]) > 0) & ~(punch & (st.item[s, slot] == ITEM.punchingglove))
@@ -1126,26 +1202,31 @@ def after_damage(st: Battle, s, mid, landed, dealt, hit_sub, key, cfg: Config):
     else:
         sec_roll = jax.random.randint(key, (), 0, 100)
     k_status = jax.random.fold_in(key, 1)
-    sec = landed & ~sheer_force & (row[MC["sec_chance"]] > 0) & (sec_roll < row[MC["sec_chance"]])
-    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0)
+    sec_chance, shielded = _i(row[MC["sec_chance"]]), jnp.bool_(False)
+    for h in hooks.handlers("secondaries"):
+        sec_chance, blocked = h(st, s, mid, sec_chance)
+        shielded |= blocked
+    sec = landed & ~sheer_force & (row[MC["sec_chance"]] > 0) & (sec_roll < sec_chance)
+    on_target = sec & ~hit_sub & (st.hp[o, tslot] > 0) & ~shielded
     st, _ = try_set_status(
         st, o, tslot, row[MC["sec_status"]], k_status, cfg, cond=on_target & (row[MC["sec_status"]] > 0)
     )
-    st, _ = apply_boosts(st, o, boosts_of(mid, "sec_boost_"), on_target)
+    st, _ = apply_boosts(st, o, boosts_of(mid, "sec_boost_"), on_target, from_foe=True)
     st = st.replace(flinch=st.flinch.at[o].set(st.flinch[o] | (on_target & (row[MC["sec_volatile"]] == VOL["flinch"]))))
     st, _ = apply_boosts(st, s, boosts_of(mid, "sec_self_boost_"), sec & (st.hp[s, slot] > 0))
     # Knock Off removes a removable item (the user must still be standing)
     knock = landed & (mid == MID["knockoff"]) & (st.hp[s, slot] > 0) & ~hit_sub
     knock &= ITEM_REMOVABLE_J[st.item[o, tslot], st.species[o, tslot]]
+    knock &= ~sticky_hold(st, o, tslot, st.ability[s, slot])
     st = st.replace(item=st.item.at[o, tslot].set(jnp.where(knock, 0, st.item[o, tslot])))
     # Hazard removal from the user's side
     spin = landed & ((mid == MID["rapidspin"]) | (mid == MID["mortalspin"])) & (st.hp[s, slot] > 0)
     st = st.replace(hazards=st.hazards.at[s].set(jnp.where(spin, 0, st.hazards[s])))
     # Recoil (from damage dealt) and Life Orb
-    recoil = (row[MC["recoil_num"]] > 0) & connected
+    recoil = (row[MC["recoil_num"]] > 0) & connected & (st.ability[s, slot] != ABILITY.rockhead)
     st = lose_hp(st, s, slot, js_round_div(dealt * row[MC["recoil_num"]], row[MC["recoil_den"]]), recoil)
     struggle_recoil = landed & (mid == STRUGGLE)
-    st = lose_hp(st, s, slot, js_round_div(maxhp, 4), struggle_recoil)
+    st = lose_hp(st, s, slot, js_round_div(maxhp, 4), struggle_recoil, direct=True)
     st = lose_hp(st, s, slot, maxhp // 10, landed & ~sheer_force & (st.item[s, slot] == ITEM.lifeorb))
     return st
 
@@ -1172,7 +1253,7 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     # Stat changes
     deltas = boosts_of(mid, "boost_")
     st, _ = apply_boosts(st, s, deltas, landed & targets_self)
-    st, foe_boosted = apply_boosts(st, o, deltas, hits_foe & (st.hp[o, tslot] > 0))
+    st, foe_boosted = apply_boosts(st, o, deltas, hits_foe & (st.hp[o, tslot] > 0), from_foe=True)
     # Status conditions
     st, _ = try_set_status(st, o, tslot, row[MC["status"]], key, cfg, cond=hits_foe & (row[MC["status"]] > 0))
     # Healing: fixed fractions, weather-dependent heals, Roost, Rest
@@ -1200,7 +1281,7 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
         )
     )
     sub = landed & (mid == MID["substitute"])
-    st = lose_hp(st, s, slot, maxhp // 4, sub)
+    st = lose_hp(st, s, slot, maxhp // 4, sub, direct=True)
     st = st.replace(sub_hp=st.sub_hp.at[s].set(jnp.where(sub, maxhp // 4, st.sub_hp[s]).astype(st.sub_hp.dtype)))
     # Entry hazards on the foe's side
     sc = row[MC["side_condition"]]
@@ -1226,8 +1307,8 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     tail = landed & (sc == SIDE["tailwind"]) & (st.tailwind[s] == 0)
     st = st.replace(tailwind=st.tailwind.at[s].set(jnp.where(tail, 4, st.tailwind[s]).astype(jnp.int8)))
     # Weather, terrain, Trick Room
-    st, _ = set_weather(st, row[MC["weather"]], s, slot, landed)
-    st, _ = set_terrain(st, row[MC["terrain"]], s, slot, landed)
+    st, _ = set_weather(st, row[MC["weather"]], s, slot, landed, refresh=False)
+    st, _ = set_terrain(st, row[MC["terrain"]], s, slot, landed, refresh=False)
     tr = landed & (row[MC["pseudo_weather"]] == PSEUDO["trickroom"])
     st = st.replace(trick_room=jnp.where(tr, jnp.where(st.trick_room > 0, 0, 5), st.trick_room).astype(jnp.int8))
     # Haze: clear both sides' stat stages
@@ -1236,7 +1317,9 @@ def status_phase(st: Battle, s, mid, landed, key, cfg: Config):
     # Defog: -1 evasion to the target (its onHit; a substitute blocks it), then clear hazards on both sides,
     # screens on the target's side, and terrain
     defog = landed & (mid == MID["defog"])
-    st, _ = apply_boosts(st, o, jnp.array([0, 0, 0, 0, 0, 0, -1]), defog & ~blocked_sub & (st.hp[o, tslot] > 0))
+    st, _ = apply_boosts(
+        st, o, jnp.array([0, 0, 0, 0, 0, 0, -1]), defog & ~blocked_sub & (st.hp[o, tslot] > 0), from_foe=True
+    )
     st = st.replace(
         hazards=jnp.where(defog, 0, st.hazards),
         screens=st.screens.at[o].set(jnp.where(defog, 0, st.screens[o])),
@@ -1318,7 +1401,10 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
         slot = act(st, s)
         maxhp = _i(st.stats[s, slot, 0])
         status = st.status[s, slot]
-        st = lose_hp(st, s, slot, maxhp // 8, cond & (status == PSN))
+        # Poison Heal: heal 1/8 instead of taking poison damage (the toxic counter still rises)
+        heal = st.ability[s, slot] == ABILITY.poisonheal
+        st = gain_hp(st, s, slot, maxhp // 8, cond & heal & ((status == PSN) | (status == TOX)))
+        st = lose_hp(st, s, slot, maxhp // 8, cond & (status == PSN) & ~heal)
         stage = jnp.minimum(_i(st.status_turns[s, slot]) + 1, 15)
         is_tox = cond & (status == TOX) & (st.hp[s, slot] > 0)
         st = st.replace(
@@ -1326,7 +1412,7 @@ def end_of_turn(st: Battle, key, cfg: Config, cond):
                 jnp.where(is_tox, stage, st.status_turns[s, slot]).astype(jnp.int8)
             )
         )
-        st = lose_hp(st, s, slot, jnp.maximum(maxhp // 16, 1) * stage, is_tox)
+        st = lose_hp(st, s, slot, jnp.maximum(maxhp // 16, 1) * stage, is_tox & ~heal)
         return eat_sitrus(st, s)
 
     def burn(st, s):
@@ -1482,7 +1568,7 @@ def step(st: Battle, actions, key, cfg: Config = Config()):
     is_switch_action = actions >= A_SWITCH
     wants = jnp.where(in_preview, True, jnp.where(in_move, is_switch_action, in_switch & st.need_switch))
     target_slot = jnp.stack([jnp.where(in_preview, actions[s], switch_target(st, s, actions[s])) for s in (0, 1)])
-    st = do_switches(st, wants, target_slot, keys[0], cfg)
+    st = do_switches(st, wants, target_slot, keys[0], cfg, together=in_preview | in_switch)
     st = st.replace(need_switch=jnp.where(in_switch, False, st.need_switch))
 
     # 2. Terastallization (after switches, before moves)

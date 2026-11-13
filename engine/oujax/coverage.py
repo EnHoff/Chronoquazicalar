@@ -62,6 +62,8 @@ HANDWRITTEN_MOVES = {
     "focuspunch", "skyattack", "rockwrecker", "beatup",
     "reversal", "flail", "shellsidearm",
     "sandtomb", "thundercage", "gigaimpact",
+    # M3 ability families
+    "skillswap",
     # M3 item_moves / slot_conditions families
     "trick", "switcheroo", "wish", "healingwish", "lunardance",
 }  # fmt: skip
@@ -82,7 +84,13 @@ SUPPORTED_SELF_VOLATILES = {"", "roost"}
 SUPPORTED_PSEUDO_WEATHERS = {"", "trickroom"}
 
 SUPPORTED_ITEMS = {"", *(k for k in vars(ITEM)), *ITEM_EFFECTS["type_boost_items"], *ITEM_EFFECTS["resist_berries"]}
-SUPPORTED_ABILITIES = {*(k for k in vars(ABILITY)), *INERT_ABILITIES}
+# Abilities the ability families implement that no L2 scenario checks against Showdown yet: they stay out of the
+# covered set until one does (Illusion is inert: there is no observation layer to disguise yet)
+UNTESTED_ABILITIES = {
+    "illusion", "motordrive", "wellbakedbody", "whitesmoke", "fullmetalbody", "hypercutter", "rattled", "grimneigh",
+    "tanglinghair", "battlearmor", "shedskin", "limber", "gluttony",
+}  # fmt: skip
+SUPPORTED_ABILITIES = {*(k for k in vars(ABILITY)), *INERT_ABILITIES} - UNTESTED_ABILITIES
 
 
 # Raw Showdown move fields with mechanics the table-driven path doesn't model

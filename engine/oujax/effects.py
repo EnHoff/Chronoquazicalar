@@ -25,7 +25,8 @@ ITEM = _ns(
     "rockyhelmet assaultvest sitrusberry airballoon expertbelt lightclay damprock heatrock smoothrock "
     "icyrock terrainextender wellspringmask hearthflamemask cornerstonemask souldew wiseglasses muscleband "
     "punchingglove eviolite widelens zoomlens scopelens razorclaw loadeddice "
-    "powerherb focussash",
+    "powerherb focussash "
+    "clearamulet",  # M3 stat_abilities (blocks stat drops from the foe)
 )
 ABILITY = _ns(
     T.ability_ids,
@@ -37,7 +38,17 @@ ABILITY = _ns(
     "solidrock prismarmor fluffy icescales thickfat heatproof purifyingsalt furcoat vesselofruin tabletsofruin "
     "swordofruin beadsofruin waterveil unaware moldbreaker teravolt turboblaze infiltrator compoundeyes hustle "
     "victorystar noguard keeneye mindseye superluck skilllink "
-    "poisonpuppeteer",
+    "poisonpuppeteer "
+    # M3 ability families (engine/oujax/families/*_abilities.py)
+    "neutralizinggas trace dauntlessshield intimidate download windrider libero protean illusion hospitality "
+    "goodasgold waterabsorb voltabsorb flashfire sapsipper dryskin motordrive wellbakedbody eartheater magicbounce "
+    "bulletproof soundproof overcoat raindish prankster galewings triage "
+    "contrary clearbody whitesmoke fullmetalbody bigpecks hypercutter mirrorarmor guarddog defiant competitive "
+    "rattled moxie chillingneigh grimneigh battlebond speedboost unburden weakarmor justified "
+    "static flamebody roughskin gooey tanglinghair effectspore poisontouch toxicchain toxicdebris cursedbody "
+    "gulpmissile pickpocket magician berserk synchronize shielddust serenegrace shellarmor battlearmor "
+    "magicguard poisonheal baddreams hydration shedskin healer sturdy disguise leafguard limber magnetpull "
+    "rockhead liquidooze stickyhold corrosion gluttony innerfocus oblivious owntempo scrappy stormdrain",
 )
 MOVE = _ns(
     T.move_ids,

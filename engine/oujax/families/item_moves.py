@@ -4,7 +4,7 @@ Moves that move items:
 - Trick / Switcheroo: swap items with the target (fails if neither holds one, if either item can't leave its holder
   or go to the other Pokemon (Booster Energy and Paradox Pokemon, Ogerpon's masks), or into a Substitute); a
   received Choice item clears the Choice lock.
-Not modelled here: Sticky Hold (abilities).
+Sticky Hold's immunity to Trick is in absorb_abilities.py.
 """
 
 import jax.numpy as jnp
