@@ -2,7 +2,7 @@
 # Full test suite with one pytest process per test file: XLA's compiled OU-JAX steps are never returned to the
 # OS within a process, so a single process running every file grows past WSL's memory. Prints each file's result
 # and peak RSS, then the totals; exits non-zero if any file fails.
-# Each file's pytest is killed if its RSS passes MEM_LIMIT_MB (default 7000), so one file can't take WSL down;
+# Each file's pytest runs in a cgroup capped at MEM_LIMIT_MB (default 7000), so one file can't take WSL down;
 # progress is appended to LOG (default logs/tests_per_file.log) as each file finishes.
 #   scripts/run_tests_per_file.sh [pytest args...]
 cd "$(dirname "$0")/.." || exit 1
@@ -15,7 +15,9 @@ mkdir -p "$(dirname "$LOG")"; echo "=== $(date -Is) $(git rev-parse --short HEAD
 pass=0; fail=0; status=0
 for f in $files; do
   tmp=$(mktemp)
-  /usr/bin/time -f "%M" pytest -q -p no:cacheprovider "$@" "$f" > "$tmp" 2>&1 &
+  # A cgroup memory cap (systemd-run scope) stops a compile spike instantly, where polling RSS is too slow
+  systemd-run --user --scope -q -p MemoryMax="${LIMIT}M" -p MemorySwapMax=0 \
+    /usr/bin/time -f "%M" pytest -q -p no:cacheprovider "$@" "$f" > "$tmp" 2>&1 &
   tpid=$!
   while kill -0 $tpid 2>/dev/null; do
     rss=$(ps -o rss= --ppid $tpid 2>/dev/null | sort -n | tail -1)  # pytest itself (time's child)
