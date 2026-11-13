@@ -1048,6 +1048,9 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     if ctx is not None:
         for h in hooks.handlers("crit_stage"):
             crit_stage = h(st, ctx, crit_stage)
+    # A negative stage from a hook means the target can't be crit at all (Shell Armor's CriticalHit: false,
+    # which also stops willCrit moves)
+    no_crit = crit_stage < 0
     crit_stage = jnp.clip(crit_stage, 0, 4)
     bypass_sub = ((row[MC["flags"]] & (FLAG_BIT["sound"] | FLAG_BIT["bypasssub"])) > 0) | (
         st.ability[s, act(st, s)] == ABILITY.infiltrator
@@ -1056,12 +1059,13 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
     field = field_info(st, o)
     # The per-move part of the damage formula is computed once (for both crit outcomes); each hit only runs
     # the cheap per-hit part
-    will_crit = row[MC["crit_ratio"]] >= 5
+    will_crit = (row[MC["crit_ratio"]] >= 5) & ~no_crit
     att_c, def_c = combatant(st, s), combatant(st, o)
     if cfg.forced:
-        parts_crit = parts_plain = damage_parts(mid, att_c, def_c, field, jnp.bool_(cfg.crit) | will_crit)
+        forced_crit = (jnp.bool_(cfg.crit) | will_crit) & ~no_crit
+        parts_crit = parts_plain = damage_parts(mid, att_c, def_c, field, forced_crit, no_crit=no_crit)
     else:
-        parts_plain = damage_parts(mid, att_c, def_c, field, will_crit)
+        parts_plain = damage_parts(mid, att_c, def_c, field, will_crit, no_crit=no_crit)
         parts_crit = damage_parts(mid, att_c, def_c, field, jnp.bool_(True))
     maxhp_o = _i(st.stats[o, tslot, 0])
     move_cat = move_category(mid, att_c, def_c)
@@ -1081,7 +1085,7 @@ def damage_phase(st: Battle, s, mid, active, keys, cfg: Config, ctx: MoveCtx = N
         missed = missed | ~acc_ok
         go = active & (h < n_hits) & ~missed & (st.hp[o, tslot] > 0) & (st.hp[s, act(st, s)] > 0)
         if cfg.forced:
-            crit = jnp.bool_(cfg.crit)
+            crit = jnp.bool_(cfg.crit) & ~no_crit
             roll = jnp.int32(cfg.roll)
         else:
             crit = jax.random.randint(kc, (), 0, CRIT_DEN[jnp.maximum(crit_stage, 1)]) == 0

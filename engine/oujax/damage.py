@@ -322,7 +322,7 @@ def effective_defender(att: Combatant, dfn: Combatant, move_id=None) -> Combatan
     return dfn._replace(ability=jnp.where(ignore & BREAKABLE_J[dfn.ability], 0, dfn.ability))
 
 
-def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit) -> Parts:
+def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit, no_crit=False) -> Parts:
     """Per-move part of the formula for a given crit outcome (see Parts)."""
     dfn = effective_defender(att, dfn, move_id)
     row = MOVES[move_id]
@@ -330,6 +330,7 @@ def damage_parts(move_id, att: Combatant, dfn: Combatant, field: FieldInfo, crit
     physical = category == 0
     flags = row[MC["flags"]]
     crit = crit | (row[MC["crit_ratio"]] >= 5)  # willCrit moves (Flower Trick, Wicked Blow, ...)
+    crit = crit & ~jnp.asarray(no_crit)  # Shell Armor / Battle Armor
     mtype, bp = move_type_and_bp(move_id, att, dfn, field.weather)
     # Rising Voltage: double power against a grounded target in Electric Terrain (basePowerCallback)
     bp = jnp.where((move_id == RISING_VOLTAGE) & (field.terrain == TERRAIN_ELECTRIC) & is_grounded(dfn), bp * 2, bp)

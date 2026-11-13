@@ -8,7 +8,7 @@ Abilities that react to a hit or to the move around it:
 - After the move: Pickpocket and Magician steal items, Berserk (+1 SpA when a hit drops it below half HP).
 - Synchronize passes burn / paralysis / poison back to the foe that caused it (at the end of the move).
 - Serene Grace doubles secondary-effect chances; Shield Dust blocks the foe's secondary effects on itself;
-  Shell Armor / Battle Armor block critical hits (simplification: not a willCrit move's, like Wicked Blow).
+  Shell Armor / Battle Armor block critical hits (willCrit moves too).
 Random 30% rolls are forced to happen in forced mode (the harness answers them with `other: true`).
 """
 
@@ -197,7 +197,8 @@ def _synchronize_back(st, ctx):
 def _secondaries(st, s, mid, chance_):
     o = 1 - s
     chance_ = jnp.where(ability(st, s) == AB["serenegrace"], chance_ * 2, chance_)
-    return chance_, eff_ability(st, o) == AB["shielddust"]
+    cloak = st.item[o, jnp.maximum(st.active[o], 0)] == COVERT_CLOAK  # the item's effect is the same
+    return chance_, (eff_ability(st, o) == AB["shielddust"]) | cloak
 
 
 @hooks.hook("crit_stage")
