@@ -58,6 +58,10 @@ CHESNAUGHT = mon("Chesnaught", "Leftovers", "Overgrow", ["Spiky Shield", "Body P
                  evs=WALL, nature="Impish", tera="Steel")  # fmt: skip
 
 CONFUSE = {"secondaries": True, "confusionSelfHit": True}
+LANTURN_SLOW = mon("Lanturn", "Leftovers", "Volt Absorb", ["Volt Switch", "Scald", "Protect", "Rest"],
+                   evs="252 HP / 4 SpA / 252 SpD", nature="Quiet", tera="Water")  # fmt: skip
+GENGAR_BOND = mon("Gengar", "Choice Scarf", "Cursed Body", ["Destiny Bond", "Shadow Ball", "Sludge Bomb", "Focus Blast"],
+                  evs="252 SpA / 4 SpD / 252 Spe", nature="Timid", tera="Ghost").replace("Ability:", "Level: 40\nAbility:")  # fmt: skip
 DOZO = mon("Dondozo", "Leftovers", "Unaware", ["Curse", "Crunch", "Rest", "Sleep Talk"], evs=WALL, nature="Impish",
             tera="Dark")  # fmt: skip
 
@@ -161,6 +165,11 @@ class TestMoveMisc(MirrorScenarios, unittest.TestCase):
         # A non-Ghost's Curse targets the user (onModifyMove), so Pressure takes no extra PP, used directly or
         # called by Sleep Talk (regression from L3a battle 6)
         self.play(team(DOZO, PEX), team(CORV, PEX), [(0, 0), (0, 3), (2, 3), (3, 3), (3, 3), (0, 1)])
+
+    def test_pivot_user_fainting_to_destiny_bond_does_not_switch(self):
+        # Volt Switch KOs a Destiny Bond user and its user faints too: both sides replace fainted Pokemon, the
+        # pivot is gone (regression from L3a battle 2)
+        self.play(team(LANTURN_SLOW, PEX), team(GENGAR_BOND, CORV), [(0, 0), (0, 0), (1, 1)])
 
 
 if __name__ == "__main__":

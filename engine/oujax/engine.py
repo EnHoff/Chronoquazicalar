@@ -1000,7 +1000,8 @@ def run_move(st: Battle, s, move_slot, struggle, enabled, last_to_act, key, cfg:
     st = set_vol(st, s, "move_result", result, user_alive)
     for h in hooks.handlers("after_move"):
         st = h(st, ctx)
-    return st, pivot
+    # A pivot needs its user standing after the after-move effects (Destiny Bond can take it down)
+    return st, pivot & (st.hp[s, slot] > 0)
 
 
 def try_rest_allowed(st: Battle, s, slot):

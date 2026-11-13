@@ -17,7 +17,7 @@ for f in $files; do
   tmp=$(mktemp)
   # A cgroup memory cap (systemd-run scope) stops a compile spike instantly, where polling RSS is too slow
   systemd-run --user --scope -q -p MemoryMax="${LIMIT}M" -p MemorySwapMax=0 \
-    /usr/bin/time -f "%M" pytest -q -p no:cacheprovider "$@" "$f" > "$tmp" 2>&1 &
+    /usr/bin/time -f "%M" python -m pytest -q -p no:cacheprovider "$@" "$f" > "$tmp" 2>&1 &
   tpid=$!
   while kill -0 $tpid 2>/dev/null; do
     rss=$(ps -o rss= --ppid $tpid 2>/dev/null | sort -n | tail -1)  # pytest itself (time's child)
