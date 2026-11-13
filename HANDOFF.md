@@ -49,14 +49,19 @@ The original plan doc is https://claude.ai/artifact/QmiTc67H4GwBjzCG7BPDjc. The 
 - **L3b:** 72 statistical tests with 0 failures (lowest p 0.061, Bonferroni).
 - **Throughput:** about 1.0M steps/s at batch 1K, 3.4M at 4K, 9.5M at 16K and 10.9M at 64K. JIT takes about 50 s, and the run uses under 300 MB of GPU memory.
 
-### M3 state as of 2026-11-08 (checked against git)
-- **Correction to the 2026-11-02 note:** the sub-branch work wasn't lost. Uncommitted subagent WIP was still sitting in the worktrees, and it's now committed and pushed.
-- **Merged into m3-meta-coverage:** `m3-volatiles` (merge commit after 4c8925f), the volatiles, move_misc, charge, call_moves, trapping, power/type/category, field and status move families. That's 77 of the 78 moves assigned to the branch. Transform and the Metronome move were skipped as planned. Magic Room is still open. One fix came out of L3a: selfBoost (Scale Shot, Clanging Scales) fails once the user's foes have no Pokémon left, because Gen 6+ `battle.boost` returns false when `!foePokemonLeft()`.
-- **After the merge:** full suite 127 passed (9m14s on CPU) and ruff is clean. Coverage is 131,434 of 262,242 sets (50.1%), and strict team coverage is 900 of 43,707 teams (2.06% usage-weighted). Strict coverage stays low until the ability and item branches land.
-- **`m3-abilities`** (f464977, WIP): 114 passed and 14 failed (L2 ability scenarios plus L3 forced). It is next to be finished and merged.
-- **`m3-items-switch`** (98a7e44, WIP): 61 passed and 68 failed, which means the request-flow changes broke the core L2 and L3 tests.
-- **Integrator:** `l3_check --pool` runs L3a on real, fully covered pool teams, which is what the gate requires.
-- **Worklist split** (the first 230 usage-ordered elements, which reach about 98.6%): moves went to m3-volatiles, items and switching moves to m3-items-switch, and abilities plus Skill Swap to m3-abilities. Usage limits stopped all three subagents on 2026-11-08, so now at most 2 run at once.
+### M3 state as of 2026-11-12 (checked against git)
+- **Merged into m3-meta-coverage (fea7a32, pushed):**
+  - `m3-volatiles`, the move families. Fix found along the way: selfBoost fails once the user's foes have no Pokemon left.
+  - e5fcedb, Gigaton Hammer / Blood Moon `cantusetwice`, found by L3a on real pool teams (49 of 50 matched before the fix).
+  - `m3-items-core`: Focus Sash, Trick / Switcheroo, Wish, Healing Wish and Lunar Dance, split out of m3-items-switch without its request-flow change. Fix found along the way: a non-Ghost's Curse targets the user, so Pressure takes no extra PP.
+- **Tests and coverage:** the full suite was 136 passed before the last merge, and ruff is clean. Coverage is 139,189 of 262,242 sets (53.1%), with 1,173 of 43,707 teams fully covered (2.69% usage-weighted).
+- **`m3-abilities`** (1dd391f, last commit WIP): 43 of 46 ability scenarios pass at b68648b, and the Intimidate reactions are done. Still failing: Shell Armor vs crits, Shield Dust vs secondaries, Toxic Chain / Poison Touch. Abilities that are implemented but untested stay out of coverage (`coverage.UNTESTED_ABILITIES`). Next step: fix those three, run the full suite, then merge.
+- **`m3-items-switch`** (94b8d06, WIP): the 68 core failures from 2026-11-08 are fixed and test_l2 is 12 of 12, but the full suite hasn't been run. It holds phazing, the Eject items, the forced-switch request flow and the remaining items.
+- **Agreed for the Nov 17 presentation** (coordinator with Ian):
+  - Stop at "enough for training": abilities, phazing and the Eject items, plus a SIMPLIFIED batch of rare, low-impact abilities and items. Each simplified element goes in a table in docs/OUJAX.md with its usage weight and the rule used.
+  - Exact verification stays for Intimidate, Good as Gold, the absorbs, Regenerator, Unaware, Magic Bounce, Sash, Trick, Wish, phazing and the Eject items.
+  - Then train on the fully covered pool.
+- **Working rules:** at most one subagent at a time, and commit and push at least hourly.
 
 ### M3 state as of 2026-11-02 (checked against git)
 - **Branches:** all work is on `m3-meta-coverage` (pushed). The sub-branches `m3-volatiles`, `m3-items-switch` and `m3-abilities` have **no commits of their own** (the first two point at 7af3dd2, the third at d732d63), so their 2026-10-25 subagent work was never committed and is lost; there is nothing to merge. Their worktrees under `.claude/worktrees/` only held untracked links. The `worktree-agent-*` branches point at main.

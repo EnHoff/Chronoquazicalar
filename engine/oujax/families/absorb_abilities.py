@@ -7,7 +7,7 @@ Abilities that stop a move at TryHit (after Protect, before type immunity and ac
 - Magic Bounce: reflectable status moves (hazards too) are used back at the user. The bounced move re-checks
   accuracy, type immunity and the user's own TryHit abilities; simplification: its accuracy ignores items and
   No Guard, and a bounced Parting Shot doesn't switch the bouncer out;
-- Oblivious: Taunt;
+- Oblivious: Taunt; Sticky Hold: Trick / Switcheroo;
 - Prankster's status moves fail against Dark types (Showdown's TryImmunity step; here a TryHit block).
 Also Dry Skin's and Rain Dish's weather effects at the end of the turn.
 """
@@ -37,6 +37,7 @@ from engine.oujax.tables import FLAG_BIT, MC, TARGET_ID
 
 TY = T.type_ids
 MID_TAUNT = T.move_ids["taunt"]
+MID_TRICK, MID_SWITCHEROO = T.move_ids["trick"], T.move_ids["switcheroo"]
 
 
 def _absorb(st, ctx):
@@ -67,6 +68,8 @@ def _absorb(st, ctx):
     blocked |= ((flags & FLAG_BIT["sound"]) > 0) & (ab == AB["soundproof"])
     blocked |= ((flags & FLAG_BIT["powder"]) > 0) & (ab == AB["overcoat"])
     blocked |= (ctx.mid == MID_TAUNT) & (ab == AB["oblivious"])  # Oblivious: Taunt (and Attract) don't affect it
+    # Trick / Switcheroo's onTryImmunity: a Sticky Hold target is immune (hasAbility: Mold Breaker doesn't help)
+    blocked |= ((ctx.mid == MID_TRICK) | (ctx.mid == MID_SWITCHEROO)) & (ability(st, o) == AB["stickyhold"])
     return st, reach & blocked
 
 

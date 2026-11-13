@@ -58,6 +58,8 @@ CHESNAUGHT = mon("Chesnaught", "Leftovers", "Overgrow", ["Spiky Shield", "Body P
                  evs=WALL, nature="Impish", tera="Steel")  # fmt: skip
 
 CONFUSE = {"secondaries": True, "confusionSelfHit": True}
+DOZO = mon("Dondozo", "Leftovers", "Unaware", ["Curse", "Crunch", "Rest", "Sleep Talk"], evs=WALL, nature="Impish",
+            tera="Dark")  # fmt: skip
 
 
 @unittest.skipUnless(harness_available(), "reference harness not installed")
@@ -154,6 +156,11 @@ class TestMoveMisc(MirrorScenarios, unittest.TestCase):
         # Baneful Bunker poisons
         script = [(0, 0), (1, 0), (3, 1), (3, 1), (1, 8), (1, 0), (1, 0)]
         self.play(team(WEAVILE_ENDURE, GHOLD), team(CHESNAUGHT, PEX_BUNKER), script)
+
+    def test_curse_from_a_non_ghost_ignores_pressure(self):
+        # A non-Ghost's Curse targets the user (onModifyMove), so Pressure takes no extra PP, used directly or
+        # called by Sleep Talk (regression from L3a battle 6)
+        self.play(team(DOZO, PEX), team(CORV, PEX), [(0, 0), (0, 3), (2, 3), (3, 3), (3, 3), (0, 1)])
 
 
 if __name__ == "__main__":
