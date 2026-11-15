@@ -3,3 +3,4 @@
 {"checkpoint": "checkpoints/ou_ppo/policy_003705.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 37, "win_rate": 0.74, "timeouts": 0, "mean_turns": 22.1, "seconds": 14, "ci95": [0.604, 0.841]}
 {"checkpoint": "checkpoints/ou_ppo/policy_004070.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 39, "win_rate": 0.78, "timeouts": 0, "mean_turns": 23.4, "seconds": 16, "ci95": [0.648, 0.872]}
 {"checkpoint": "checkpoints/ou_ppo/policy_005032.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 40, "win_rate": 0.8, "timeouts": 0, "mean_turns": 19.1, "seconds": 11, "ci95": [0.67, 0.888]}
+{"checkpoint": "checkpoints/ou_ppo/policy_005995.pkl", "opponent": "heuristic", "games": 50, "finished": 50, "wins": 39, "win_rate": 0.78, "timeouts": 0, "mean_turns": 17.9, "seconds": 10, "ci95": [0.648, 0.872]}
